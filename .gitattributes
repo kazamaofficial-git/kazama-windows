@@ -1,0 +1,4 @@
+# Shell scripts MUST stay LF to run inside Linux.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary

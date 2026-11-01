@@ -1,0 +1,27 @@
+# Local run (Linux host with KVM). On Railway the Dockerfile is used instead.
+#   RDP_PASSWORD='Str0ng#Pass9' docker compose up
+services:
+  windows:
+    build: .
+    container_name: kazama-windows
+    environment:
+      RDP_PASSWORD: ${RDP_PASSWORD:?set RDP_PASSWORD}
+      WINDOWS_VERSION: ${WINDOWS_VERSION:-windows-latest}   # windows-latest | windows-2025 | windows-2022
+      RDP_USERNAME: ${RDP_USERNAME:-kazama}
+      APP_LANG: ${APP_LANG:-en}                              # en | id
+    devices:
+      - /dev/kvm
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "8006:8006"        # web viewer (local use only)
+      - "3389:3389/tcp"    # RDP
+      - "3389:3389/udp"
+    volumes:
+      - kazama-win:/storage
+    stop_grace_period: 2m
+    restart: on-failure
+
+volumes:
+  kazama-win:

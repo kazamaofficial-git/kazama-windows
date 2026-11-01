@@ -1,0 +1,236 @@
+#!/usr/bin/env bash
+# ============================================================
+# Kazama Windows — container entrypoint
+# Developer  : @kazamaofficial-git
+# Repository : https://github.com/kazamaofficial-git/kazama-windows
+# ============================================================
+# Wraps the upstream dockurr/windows entrypoint:
+#   1. validates RDP_PASSWORD / RDP_USERNAME
+#   2. maps WINDOWS_VERSION (windows-latest | windows-2025 | windows-2022)
+#      to the upstream VERSION
+#   3. falls back to software emulation when /dev/kvm is missing (Railway)
+#   4. writes the in-Windows settings (storage booster, wallpaper) to /oem
+#   5. optionally joins your Tailscale network and forwards RDP to Windows
+#   6. prints connection info, then hands over to the upstream entrypoint
+set -Eeuo pipefail
+
+# shellcheck source=../lib/kazama/common.sh
+. /usr/local/lib/kazama/common.sh
+
+readonly UPSTREAM_ENTRY="${KZ_UPSTREAM_ENTRY:-/run/entry.sh}"
+readonly STORAGE_DIR="${KZ_STORAGE_DIR:-/storage}"
+readonly OEM_DIR="${KZ_OEM_DIR:-/oem}"
+
+WINDOWS_LABEL=''
+BOOSTER_LABEL=''
+TS_KEY=''
+
+# ---------------------------------------------------------------
+# 1. Credentials
+# ---------------------------------------------------------------
+validate_credentials() {
+  local user=${RDP_USERNAME:-kazama} pw=${RDP_PASSWORD:-} classes=0 re
+
+  if [[ -z $pw ]]; then
+    kz_die \
+      "RDP_PASSWORD is required. Set it in the Railway Variables tab before deploying." \
+      "RDP_PASSWORD wajib diisi. Atur di tab Variables Railway sebelum deploy."
+  fi
+  if [[ ! $user =~ ^[A-Za-z][A-Za-z0-9_-]{0,19}$ ]]; then
+    kz_die \
+      "Invalid RDP_USERNAME '$user' (letters, digits, _ or -, max 20, must start with a letter)." \
+      "RDP_USERNAME '$user' tidak valid (huruf, angka, _ atau -, maks 20, harus diawali huruf)."
+  fi
+  case "${user,,}" in
+    administrator | guest | system | defaultaccount | admin)
+      kz_die \
+        "RDP_USERNAME '$user' is reserved by Windows. Pick another name." \
+        "RDP_USERNAME '$user' dicadangkan oleh Windows. Pilih nama lain."
+      ;;
+  esac
+
+  for re in '[a-z]' '[A-Z]' '[0-9]' '[^a-zA-Z0-9]'; do
+    if [[ $pw =~ $re ]]; then classes=$((classes + 1)); fi
+  done
+  if ((${#pw} < 8 || classes < 3)) || [[ ${pw,,} == *"${user,,}"* ]]; then
+    kz_die \
+      "RDP_PASSWORD must be 8+ characters, mix 3 of: lowercase, UPPERCASE, digits, symbols, and not contain the username." \
+      "RDP_PASSWORD minimal 8 karakter, campuran 3 dari: huruf kecil, BESAR, angka, simbol, dan tidak boleh memuat username."
+  fi
+  # The password is written into Windows' unattended-setup XML.
+  case $pw in
+    *[[:space:]]* | *'<'* | *'>'* | *'&'* | *'"'* | *"'"*)
+      kz_die \
+        "RDP_PASSWORD must not contain spaces or any of < > & \" '" \
+        "RDP_PASSWORD tidak boleh mengandung spasi atau salah satu dari < > & \" '"
+      ;;
+  esac
+
+  export USERNAME="$user" PASSWORD="$pw"
+  unset RDP_PASSWORD
+}
+
+# ---------------------------------------------------------------
+# 2. Windows version
+# ---------------------------------------------------------------
+resolve_version() {
+  local requested=${WINDOWS_VERSION:-windows-latest}
+  case "${requested,,}" in
+    windows-latest | latest | windows-2025 | 2025)
+      export VERSION=2025
+      WINDOWS_LABEL="Windows Server 2025 (windows-latest)"
+      ;;
+    windows-2022 | 2022)
+      export VERSION=2022
+      WINDOWS_LABEL="Windows Server 2022"
+      ;;
+    *)
+      kz_die \
+        "Unsupported WINDOWS_VERSION '$requested'. Use windows-latest, windows-2025 or windows-2022." \
+        "WINDOWS_VERSION '$requested' tidak didukung. Gunakan windows-latest, windows-2025, atau windows-2022."
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------
+# 3. Resources + acceleration
+# ---------------------------------------------------------------
+configure_resources() {
+  export RAM_SIZE="${RAM_SIZE:-4G}" CPU_CORES="${CPU_CORES:-2}" DISK_SIZE="${DISK_SIZE:-40G}"
+
+  if [[ ! -e /dev/kvm && -z ${KVM:-} ]]; then
+    export KVM=N
+    kz_warn \
+      "/dev/kvm not available — using software emulation. Installation and boot will be VERY slow." \
+      "/dev/kvm tidak tersedia — memakai emulasi software. Instalasi dan boot akan SANGAT lambat."
+  fi
+
+  if ! mountpoint -q "$STORAGE_DIR"; then
+    kz_warn \
+      "$STORAGE_DIR is not a mounted volume — Windows will be re-installed on every redeploy. Attach a Railway Volume at $STORAGE_DIR." \
+      "$STORAGE_DIR bukan volume — Windows akan diinstal ulang setiap redeploy. Pasang Railway Volume di $STORAGE_DIR."
+  fi
+}
+
+# ---------------------------------------------------------------
+# 4. In-Windows settings (read by C:\OEM\kazama-setup.ps1 at install time)
+# ---------------------------------------------------------------
+pick() { # pick VALUE DEFAULT allowed...  → prints VALUE if allowed, else DEFAULT
+  local value=${1,,} default=$2 allowed
+  shift 2
+  for allowed in "$@"; do
+    if [[ $value == "$allowed" ]]; then printf '%s' "$value"; return; fi
+  done
+  printf '%s' "$default"
+}
+
+write_oem_config() {
+  local booster schedule wallpaper
+  booster="$(pick "${BOOSTER_MODE:-safe}" safe off safe deep)"
+  schedule="$(pick "${BOOSTER_SCHEDULE:-weekly}" weekly off daily weekly)"
+  wallpaper="$(pick "${KAZAMA_WALLPAPER:-true}" true true false)"
+
+  install -d "$OEM_DIR"
+  printf 'LANG=%s\nBOOSTER=%s\nSCHEDULE=%s\nWALLPAPER=%s\n' \
+    "$KZ_LANG" "$booster" "$schedule" "$wallpaper" >"$OEM_DIR/kazama.conf"
+  BOOSTER_LABEL="$booster ($schedule)"
+}
+
+# ---------------------------------------------------------------
+# 5. Tailscale (optional) — private RDP without a public TCP Proxy
+# ---------------------------------------------------------------
+start_tailscale() {
+  local sock=/var/run/tailscale/tailscaled.sock host=${TAILSCALE_HOSTNAME:-kazama-windows} ip='' i
+  install -d /var/run/tailscale
+
+  # Userspace networking: no /dev/net/tun or NET_ADMIN needed (Railway has neither).
+  tailscaled --tun=userspace-networking --state=mem: --socket="$sock" >/var/log/tailscaled.log 2>&1 &
+  for i in $(seq 1 30); do [[ -S $sock ]] && break; sleep 1; done
+
+  if ! tailscale --socket="$sock" up --authkey="$TS_KEY" --hostname="$host" --accept-dns=false >/var/log/tailscale-up.log 2>&1; then
+    kz_warn \
+      "Tailscale login failed — check TAILSCALE_AUTHKEY (see /var/log/tailscale-up.log)." \
+      "Login Tailscale gagal — periksa TAILSCALE_AUTHKEY (lihat /var/log/tailscale-up.log)."
+    return 0
+  fi
+
+  # The Windows VM answers on the container's eth0 address (passt user-mode networking).
+  for i in $(seq 1 60); do
+    ip="$(hostname -I 2>/dev/null | awk '{ print $1 }')"
+    [[ -n $ip ]] && break
+    sleep 2
+  done
+  [[ $ip == *:* ]] && ip="[$ip]"
+  if [[ -z $ip ]]; then
+    kz_warn "Could not find the container address for Tailscale forwarding." "Alamat container untuk forwarding Tailscale tidak ditemukan."
+    return 0
+  fi
+
+  tailscale --socket="$sock" serve --bg --tcp=3389 "tcp://${ip}:3389" >/dev/null 2>&1 || true
+  tailscale --socket="$sock" serve --bg --tcp=8006 "tcp://${ip}:8006" >/dev/null 2>&1 || true
+  kz_info \
+    "Tailscale ready — RDP: $(tailscale --socket="$sock" ip -4 | head -1):3389  or  ${host}:3389 (Tailscale must run on your device)" \
+    "Tailscale siap — RDP: $(tailscale --socket="$sock" ip -4 | head -1):3389  atau  ${host}:3389 (Tailscale harus aktif di perangkat Anda)"
+}
+
+# ---------------------------------------------------------------
+# 6. Banner + connection info
+# ---------------------------------------------------------------
+print_banner() {
+  local rdp_addr web_addr
+  if [[ -n ${RAILWAY_TCP_PROXY_DOMAIN:-} && -n ${RAILWAY_TCP_PROXY_PORT:-} ]]; then
+    rdp_addr="${RAILWAY_TCP_PROXY_DOMAIN}:${RAILWAY_TCP_PROXY_PORT}"
+  else
+    rdp_addr="$(msg '(add a TCP Proxy on port 3389 in Railway > Settings > Networking)' '(tambahkan TCP Proxy di port 3389 pada Railway > Settings > Networking)')"
+  fi
+  if [[ -n ${RAILWAY_PUBLIC_DOMAIN:-} ]]; then
+    web_addr="https://${RAILWAY_PUBLIC_DOMAIN}"
+  else
+    web_addr="$(msg '(no public domain — good: RDP only)' '(tanpa domain publik — bagus: hanya RDP)')"
+  fi
+
+  cat >&2 <<BANNER
+
+  ██╗  ██╗ █████╗ ███████╗ █████╗ ███╗   ███╗ █████╗
+  ██║ ██╔╝██╔══██╗╚══███╔╝██╔══██╗████╗ ████║██╔══██╗
+  █████╔╝ ███████║  ███╔╝ ███████║██╔████╔██║███████║
+  ██╔═██╗ ██╔══██║ ███╔╝  ██╔══██║██║╚██╔╝██║██╔══██║
+  ██║  ██╗██║  ██║███████╗██║  ██║██║ ╚═╝ ██║██║  ██║
+  ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝
+                 W I N D O W S  ·  R D P
+           Developer · ${KZ_AUTHOR}
+
+  Windows     : ${WINDOWS_LABEL}
+  Username    : ${USERNAME}
+  Password    : $(msg 'the RDP_PASSWORD variable' 'variabel RDP_PASSWORD')
+  RDP address : ${rdp_addr}
+  Web viewer  : ${web_addr}
+  Resources   : ${CPU_CORES} vCPU · ${RAM_SIZE} RAM · ${DISK_SIZE} disk
+  Booster     : ${BOOSTER_LABEL}
+  Tailscale   : $([[ -n $TS_KEY ]] && msg 'ON (private RDP)' 'AKTIF (RDP privat)' || msg 'off' 'mati')
+  Acceleration: $([[ ${KVM:-Y} == N ]] && msg 'software (no KVM)' 'software (tanpa KVM)' || echo 'KVM')
+
+BANNER
+  kz_info \
+    "First boot downloads and installs Windows — follow the progress in these logs." \
+    "Boot pertama mengunduh dan menginstal Windows — pantau progres di log ini."
+  kz_info \
+    "Connect with Windows App: PC name = RDP address above, then sign in with the username/password." \
+    "Hubungkan dengan Windows App: PC name = alamat RDP di atas, lalu masuk dengan username/password."
+}
+
+main() {
+  validate_credentials
+  resolve_version
+  configure_resources
+  write_oem_config
+  TS_KEY="${TAILSCALE_AUTHKEY:-}"
+  print_banner
+  if [[ -n $TS_KEY ]]; then
+    start_tailscale &
+  fi
+  unset TAILSCALE_AUTHKEY
+  exec "$UPSTREAM_ENTRY" "$@"
+}
+
+main "$@"

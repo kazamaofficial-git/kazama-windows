@@ -1,0 +1,14 @@
+.git
+.github
+scripts
+.gitattributes
+.gitignore
+.dockerignore
+assets/*
+!assets/wallpaper.png
+*.md
+LICENSE
+compose.yml
+railway.json
+railway-template.json
+.DS_Store

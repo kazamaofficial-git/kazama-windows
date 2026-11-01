@@ -1,0 +1,123 @@
+name: Kazama Windows RDP (Tailscale)
+
+run-name: "Kazama RDP · ${{ inputs.windows }} · boost ${{ inputs.boost }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      windows:
+        description: "Windows version"
+        type: choice
+        default: windows-latest
+        options:
+          - windows-latest
+          - windows-2025
+          - windows-2022
+      boost:
+        description: "Storage Booster (frees disk space before you connect)"
+        type: choice
+        default: safe
+        options: ["off", "safe", "deep"]
+      duration:
+        description: "Max session length in minutes (10-345)"
+        type: string
+        default: "330"
+      idle_timeout:
+        description: "Stop after N minutes with no active RDP session (0 = never)"
+        type: string
+        default: "30"
+      username:
+        description: "RDP username (password = RDP_PASSWORD secret)"
+        type: string
+        default: "kazama"
+      tailscale_hostname:
+        description: "Tailscale machine name (empty = kazama-win-<run id>)"
+        type: string
+        default: ""
+      packages:
+        description: "Optional Chocolatey packages, e.g. googlechrome,vscode"
+        type: string
+        default: ""
+      save_files:
+        description: "Upload Desktop + Documents as an artifact when the session ends"
+        type: boolean
+        default: false
+      language:
+        description: "Log language"
+        type: choice
+        default: en
+        options: [en, id]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kazama-rdp
+  cancel-in-progress: false
+
+jobs:
+  rdp:
+    name: Kazama RDP (${{ inputs.windows }})
+    runs-on: ${{ inputs.windows }}
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      KZ_LANG: ${{ inputs.language }}
+      KZ_USERNAME: ${{ inputs.username }}
+      KZ_WINDOWS: ${{ inputs.windows }}
+      KZ_DURATION: ${{ inputs.duration }}
+      KZ_IDLE: ${{ inputs.idle_timeout }}
+      KZ_TS_HOSTNAME: ${{ inputs.tailscale_hostname }}
+      KZ_PACKAGES: ${{ inputs.packages }}
+      KZ_SAVE_FILES: ${{ inputs.save_files }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Storage Booster
+        if: inputs.boost != 'off'
+        run: ./windows/kazama-booster.ps1 -Mode '${{ inputs.boost }}' -Language '${{ inputs.language }}' -Quiet -NoPause
+
+      - name: Set up RDP
+        env:
+          RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
+          RDP_PASSWORD_VAR: ${{ vars.RDP_PASSWORD }}
+        run: ./scripts/setup-rdp.ps1
+
+      - name: Kazama desktop (wallpaper + booster shortcut)
+        run: ./windows/kazama-setup.ps1 -Language '${{ inputs.language }}' -Booster '${{ inputs.boost }}' -Schedule off -Wallpaper true
+
+      - name: Install extra packages
+        if: inputs.packages != ''
+        run: ./scripts/install-packages.ps1
+
+      - name: Tailscale
+        id: tailscale
+        env:
+          TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+          TAILSCALE_AUTHKEY_VAR: ${{ vars.TAILSCALE_AUTHKEY }}
+        run: ./scripts/tunnel-tailscale.ps1
+
+      - name: Show connection details
+        env:
+          KZ_HOST: ${{ steps.tailscale.outputs.host }}
+          KZ_NAME: ${{ steps.tailscale.outputs.name }}
+        run: ./scripts/show-connection.ps1
+
+      - name: Keep session alive
+        run: ./scripts/keepalive.ps1
+
+      - name: Cleanup
+        if: always()
+        run: ./scripts/cleanup.ps1
+
+      - name: Upload saved files
+        if: always() && inputs.save_files
+        uses: actions/upload-artifact@v4
+        with:
+          name: kazama-files-${{ github.run_id }}
+          path: ${{ runner.temp }}/kazama-files
+          if-no-files-found: ignore
+          retention-days: 3

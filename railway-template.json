@@ -1,0 +1,119 @@
+{
+  "name": "Kazama · Windows RDP",
+  "description": "Windows Server (2025 / 2022) over RDP on Railway — connect with Windows App; optional private access via Tailscale and a built-in Storage Booster. This is an RDP desktop, not a VPS. Needs a Railway Volume at /storage and enough RAM; runs without KVM so it is slow.",
+  "readme": "# Kazama — Windows RDP\n\nRDP desktop on Railway (Windows Server inside QEMU). **Not a VPS.**\n\n## Before you deploy\n- Attach a **Volume** mounted at `/storage` (Windows needs roughly 20–30 GB).\n- Give the service at least **4 GB RAM**.\n- Railway has no KVM, so install and boot are **slow**.\n\n## Deploy\n1. Set **RDP_PASSWORD** (required) and optionally **WINDOWS_VERSION** (`windows-latest`, `windows-2025`, `windows-2022`).\n2. Add a **TCP Proxy** on port `3389`.\n3. Watch the deploy logs until Windows finishes installing, then connect with **Windows App** using `<proxy-domain>:<proxy-port>`.\n\n© Kazama · @kazamaofficial-git",
+  "services": [
+    {
+      "name": "kazama-windows",
+      "source": {
+        "repo": "https://github.com/kazamaofficial-git/kazama-windows",
+        "branch": "main"
+      },
+      "build": {
+        "builder": "DOCKERFILE",
+        "dockerfilePath": "Dockerfile",
+        "watchPatterns": [
+          "Dockerfile",
+          "rootfs/**"
+        ]
+      },
+      "deploy": {
+        "restartPolicyType": "ON_FAILURE",
+        "restartPolicyMaxRetries": 5
+      },
+      "volumes": [
+        {
+          "mountPath": "/storage"
+        }
+      ],
+      "variables": {
+        "RDP_PASSWORD": {
+          "required": true,
+          "secret": true,
+          "description": "Password for the Windows RDP user. 8+ chars, 3 of: lower/UPPER/digits/symbols, no spaces or < > & \" ', must not contain the username."
+        },
+        "WINDOWS_VERSION": {
+          "required": false,
+          "secret": false,
+          "defaultValue": "windows-latest",
+          "description": "windows-latest (Server 2025), windows-2025 or windows-2022. Only applied at first install; wipe the volume to change later."
+        },
+        "RDP_USERNAME": {
+          "required": false,
+          "secret": false,
+          "defaultValue": "kazama",
+          "description": "Windows administrator username created at first install."
+        },
+        "RAM_SIZE": {
+          "required": false,
+          "secret": false,
+          "defaultValue": "4G",
+          "description": "RAM given to Windows (must fit your Railway service limit)."
+        },
+        "CPU_CORES": {
+          "required": false,
+          "secret": false,
+          "defaultValue": "2",
+          "description": "vCPU cores given to Windows."
+        },
+        "DISK_SIZE": {
+          "required": false,
+          "secret": false,
+          "defaultValue": "40G",
+          "description": "Virtual disk size (must fit the Railway Volume)."
+        },
+        "APP_LANG": {
+          "required": false,
+          "secret": false,
+          "defaultValue": "en",
+          "description": "Log language: en or id."
+        },
+        "RAILWAY_DEPLOYMENT_DRAINING_SECONDS": {
+          "required": false,
+          "secret": false,
+          "defaultValue": "60",
+          "description": "Time Railway waits for Windows to shut down cleanly before killing the container."
+        },
+        "TAILSCALE_AUTHKEY": {
+          "required": false,
+          "secret": true,
+          "description": "Optional Tailscale auth key (ephemeral + reusable recommended). When set, RDP is reachable privately over your tailnet — no public TCP Proxy needed. Tailscale must run on the device you connect from."
+        },
+        "TAILSCALE_HOSTNAME": {
+          "required": false,
+          "secret": false,
+          "defaultValue": "kazama-windows",
+          "description": "Machine name shown in your Tailscale admin."
+        },
+        "BOOSTER_MODE": {
+          "required": false,
+          "secret": false,
+          "defaultValue": "safe",
+          "description": "Storage Booster inside Windows: off, safe (caches/temp/update leftovers) or deep (also DISM ResetBase, hibernation, shadow copies, event logs). Applied at first install; edit C:\\Kazama\\kazama.conf later."
+        },
+        "BOOSTER_SCHEDULE": {
+          "required": false,
+          "secret": false,
+          "defaultValue": "weekly",
+          "description": "Automatic Storage Booster run: off, daily or weekly (03:00)."
+        },
+        "KAZAMA_WALLPAPER": {
+          "required": false,
+          "secret": false,
+          "defaultValue": "true",
+          "description": "Apply the Kazama wallpaper on each user's first logon (true/false)."
+        }
+      }
+    }
+  ],
+  "proxy": {
+    "application": "kazama-windows",
+    "ports": [
+      {
+        "port": 3389,
+        "protocol": "tcp",
+        "service": "kazama-windows"
+      }
+    ]
+  }
+}

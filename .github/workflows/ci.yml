@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint shell scripts
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck -x -s bash \
+            rootfs/usr/local/bin/kazama-entrypoint \
+            rootfs/usr/local/lib/kazama/common.sh
+
+  powershell:
+    name: PowerShell syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse every .ps1 / .psm1
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem -Recurse -Include *.ps1, *.psm1 | ForEach-Object {
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors)
+            if ($errors) { $failed = $true; $errors | ForEach-Object { Write-Host "::error file=$($_.Extent.File),line=$($_.Extent.StartLineNumber)::$($_.Message)" } }
+            else { Write-Host "OK  $($_.FullName)" }
+          }
+          if ($failed) { exit 1 }
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: kazama-windows:ci
+      - name: Smoke test
+        run: |
+          # Must refuse to start without RDP_PASSWORD.
+          if docker run --rm kazama-windows:ci; then exit 1; fi
+          # Must reject unsupported Windows versions.
+          if docker run --rm -e RDP_PASSWORD='Str0ng#Pass9' -e WINDOWS_VERSION=windows-2019 kazama-windows:ci; then exit 1; fi
+          # Tailscale binaries and the in-Windows files must be in the image.
+          docker run --rm --entrypoint bash kazama-windows:ci -c 'command -v tailscale tailscaled && ls /oem/install.bat /oem/kazama-booster.ps1 /oem/wallpaper.png'
