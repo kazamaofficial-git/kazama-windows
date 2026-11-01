@@ -26,11 +26,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Parse every .ps1 / .psm1
+      - name: Parse every .ps1 / .psm1 / .psd1
         shell: pwsh
         run: |
           $failed = $false
-          Get-ChildItem -Recurse -Include *.ps1, *.psm1 | ForEach-Object {
+          Get-ChildItem -Recurse -Include *.ps1, *.psm1, *.psd1 | ForEach-Object {
             $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors)
             if ($errors) { $failed = $true; $errors | ForEach-Object { Write-Host "::error file=$($_.Extent.File),line=$($_.Extent.StartLineNumber)::$($_.Message)" } }
@@ -58,4 +58,4 @@ jobs:
           # Must reject unsupported Windows versions.
           if docker run --rm -e RDP_PASSWORD='Str0ng#Pass9' -e WINDOWS_VERSION=windows-2019 kazama-windows:ci; then exit 1; fi
           # Tailscale binaries and the in-Windows files must be in the image.
-          docker run --rm --entrypoint bash kazama-windows:ci -c 'command -v tailscale tailscaled && ls /oem/install.bat /oem/kazama-booster.ps1 /oem/wallpaper.png'
+          docker run --rm --entrypoint bash kazama-windows:ci -c 'command -v tailscale tailscaled && ls /oem/install.bat /oem/kazama-booster.ps1 /oem/kazama-catalog.psd1 /oem/wallpaper.png'

@@ -14,10 +14,14 @@ on:
           - windows-2025
           - windows-2022
       boost:
-        description: "Storage Booster (frees disk space before you connect)"
+        description: "Storage Booster: safe = caches | deep = + system leftovers | max = + removes apps/SDKs (Edge, Unity, R, Haskell, Visual Studio...)"
         type: choice
-        default: safe
-        options: ["off", "safe", "deep"]
+        default: max
+        options: ["off", "safe", "deep", "max"]
+      keep:
+        description: "Apps to KEEP in max mode (comma separated ids, see windows/kazama-catalog.psd1). Chrome is always kept."
+        type: string
+        default: "chrome"
       duration:
         description: "Max session length in minutes (10-345)"
         type: string
@@ -71,6 +75,7 @@ jobs:
       KZ_IDLE: ${{ inputs.idle_timeout }}
       KZ_TS_HOSTNAME: ${{ inputs.tailscale_hostname }}
       KZ_PACKAGES: ${{ inputs.packages }}
+      KZ_KEEP: ${{ inputs.keep }}
       KZ_SAVE_FILES: ${{ inputs.save_files }}
     steps:
       - name: Checkout
@@ -78,7 +83,7 @@ jobs:
 
       - name: Storage Booster
         if: inputs.boost != 'off'
-        run: ./windows/kazama-booster.ps1 -Mode '${{ inputs.boost }}' -Language '${{ inputs.language }}' -Quiet -NoPause
+        run: ./windows/kazama-booster.ps1 -Mode '${{ inputs.boost }}' -Language '${{ inputs.language }}' -Keep "$env:KZ_KEEP" -Quiet -NoPause
 
       - name: Set up RDP
         env:
@@ -87,7 +92,7 @@ jobs:
         run: ./scripts/setup-rdp.ps1
 
       - name: Kazama desktop (wallpaper + booster shortcut)
-        run: ./windows/kazama-setup.ps1 -Language '${{ inputs.language }}' -Booster '${{ inputs.boost }}' -Schedule off -Wallpaper true
+        run: ./windows/kazama-setup.ps1 -Language '${{ inputs.language }}' -Booster '${{ inputs.boost }}' -Keep "$env:KZ_KEEP" -Schedule off -Wallpaper true
 
       - name: Install extra packages
         if: inputs.packages != ''

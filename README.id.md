@@ -67,7 +67,8 @@ Kedua mode sudah menyertakan **Storage Booster** dan **wallpaper** Kazama.
 | `RDP_USERNAME` | — | `kazama` | Akun administrator yang dibuat saat instalasi. |
 | `TAILSCALE_AUTHKEY` | — | — | Mengaktifkan akses privat lewat Tailscale. Pakai key **ephemeral + reusable**. |
 | `TAILSCALE_HOSTNAME` | — | `kazama-windows` | Nama mesin di tailnet Anda. |
-| `BOOSTER_MODE` | — | `safe` | `off`, `safe`, `deep` — lihat [Storage Booster](#-storage-booster). |
+| `BOOSTER_MODE` | — | `safe` | `off`, `safe`, `deep`, `max` — lihat [Storage Booster](#-storage-booster). |
+| `BOOSTER_KEEP` | — | `chrome` | Id katalog yang **tidak** boleh dihapus `max`, mis. `chrome,visualstudio`. |
 | `BOOSTER_SCHEDULE` | — | `weekly` | `off`, `daily`, `weekly` (03:00, di dalam Windows). |
 | `KAZAMA_WALLPAPER` | — | `true` | Terapkan wallpaper Kazama saat logon pertama tiap user. |
 | `RAM_SIZE` / `CPU_CORES` / `DISK_SIZE` | — | `4G` / `2` / `40G` | Resource VM (harus muat di plan / Volume). |
@@ -87,7 +88,7 @@ Kedua mode sudah menyertakan **Storage Booster** dan **wallpaper** Kazama.
 4. **Actions → "Kazama Windows RDP (Tailscale)" → Run workflow**, pilih **windows-latest**, **windows-2025**, atau **windows-2022**, plus level booster.
 5. Saat run mencapai *Keep session alive*, buka **job summary** untuk alamatnya, lalu hubungkan.
 
-Input: versi Windows · `boost` (off/safe/deep) · `duration` (maks 345 menit) · `idle_timeout` (berhenti jika tak ada yang terhubung) · `username` · nama Tailscale · `packages` Chocolatey tambahan · `save_files` (unggah Desktop + Documents saat selesai) · `language`.
+Input: versi Windows · `boost` (off/safe/deep/**max**, default `max`) · `keep` (aplikasi yang tidak boleh dihapus `max`) · `duration` (maks 345 menit) · `idle_timeout` (berhenti jika tak ada yang terhubung) · `username` · nama Tailscale · `packages` Chocolatey tambahan · `save_files` (unggah Desktop + Documents saat selesai) · `language`.
 
 ---
 
@@ -109,12 +110,21 @@ Membebaskan ruang disk `C:` dengan menghapus file yang bisa dibuat ulang Windows
 | Mode | Yang dihapus |
 |------|--------------|
 | **safe** | File sementara, crash dump, cache unduhan Windows Update, cache Delivery Optimization, laporan error, log CBS, cache Edge/Chrome, cache npm/pip, Recycle Bin, + TRIM disk |
-| **deep** | semua di *safe* **ditambah** pembersihan component store Windows (`DISM /ResetBase`), file hibernasi, shadow copy, event log, `Windows.old`, dan — di runner GitHub — SDK bawaan yang besar (Android, ghcup, Miniconda, MySQL, PostgreSQL, MongoDB) |
+| **deep** | semua di *safe* **ditambah** pembersihan component store Windows (`DISM /ResetBase`), file hibernasi, shadow copy, event log, `Windows.old`, cache paket installer |
+| **max** | semua di *deep* **ditambah menghapus aplikasi dan SDK di [`windows/kazama-catalog.psd1`](windows/kazama-catalog.psd1)**: Edge, Firefox, Unity, R (+ Rtools), Haskell (ghcup/cabal), Android SDK, Julia, Miniconda, Rust, MSYS2, MySQL, PostgreSQL, MongoDB, Cosmos DB Emulator, dan **Visual Studio** |
+
+**`safe` hanya membersihkan cache, jadi hasilnya kecil (sekitar 1 GB di runner).** Hasil besar di runner GitHub datang dari `max`, yang menghapus aplikasi dan SDK bawaan.
+
+Detail `max`:
+- **Chrome selalu dipertahankan.** Jika Edge akan dihapus dan Chrome belum ada, Chrome dipasang dulu; jika gagal, Edge tetap ada.
+- Tiap entri katalog hanya dijalankan bila benar-benar terpasang, dan folder berversi (`R-4.3.x`, `Visual Studio\2022` …) dicocokkan dengan wildcard, sehingga katalog yang sama bekerja di `windows-latest`, `windows-2025`, dan `windows-2022`. Profil yang terdeteksi (`win2022` / `win2025`) dicetak di log dan job summary.
+- **Lindungi apa pun dengan `keep`** (input Actions) atau `BOOSTER_KEEP` (Railway), mis. `chrome,visualstudio`. Id entri ada di file katalog; tambahkan entri Anda sendiri di sana.
+- Menghapus folder besar (Visual Studio puluhan GB) butuh beberapa menit. Log menampilkan berapa yang dibebaskan tiap entri.
 
 - **Shortcut desktop** *Kazama Storage Booster* — jalankan kapan saja (meminta hak admin).
 - **Jalan otomatis** — mode Railway: scheduled task (`BOOSTER_SCHEDULE`); mode Actions: dijalankan sebelum Anda terhubung.
 - Pengaturan dan log: `C:\Kazama\kazama.conf`, `C:\Kazama\booster.log`.
-- `deep` untuk desktop sekali pakai: update Windows yang terpasang tidak bisa lagi dicopot.
+- `deep` dan `max` untuk desktop sekali pakai: update Windows tidak bisa dicopot lagi dan aplikasi hilang permanen.
 
 ---
 
@@ -131,7 +141,8 @@ Membebaskan ruang disk `C:` dengan menghapus file yang bisa dibuat ulang Windows
 ├── windows/                         # berjalan DI DALAM Windows (kedua mode)
 │   ├── install.bat                  # Railway: dijalankan dockur di akhir instalasi
 │   ├── kazama-setup.ps1             # task wallpaper, shortcut + jadwal booster
-│   ├── kazama-booster.ps1           # Storage Booster
+│   ├── kazama-booster.ps1           # Storage Booster (safe / deep / max)
+│   ├── kazama-catalog.psd1          # aplikasi & SDK yang dihapus `max` (bisa diedit)
 │   └── kazama-wallpaper.ps1         # wallpaper per user
 ├── scripts/                         # Mode B: skrip runner GitHub Actions
 ├── assets/                          # wallpaper + screenshot

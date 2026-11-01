@@ -8,13 +8,14 @@
 #   Actions  : the workflow runs it right after enabling RDP
 #
 # Settings come from parameters, else from kazama.conf next to this script, else defaults.
-#   LANG=en|id   BOOSTER=off|safe|deep   SCHEDULE=off|daily|weekly   WALLPAPER=true|false
+#   LANG=en|id   BOOSTER=off|safe|deep|max   SCHEDULE=off|daily|weekly   WALLPAPER=true|false   KEEP=chrome,...
 [CmdletBinding()]
 param(
     [string]$Language,
     [string]$Booster,
     [string]$Schedule,
     [string]$Wallpaper,
+    [string]$Keep,
     [switch]$RunNow
 )
 $ErrorActionPreference = 'Continue'
@@ -34,9 +35,11 @@ function Resolve-Setting([string]$Param, [string]$Key, [string]$Default, [string
     return $value
 }
 $lang = Resolve-Setting $Language 'LANG' 'en' @('en', 'id')
-$boost = Resolve-Setting $Booster 'BOOSTER' 'safe' @('off', 'safe', 'deep')
+$boost = Resolve-Setting $Booster 'BOOSTER' 'safe' @('off', 'safe', 'deep', 'max')
 $sched = Resolve-Setting $Schedule 'SCHEDULE' 'weekly' @('off', 'daily', 'weekly')
 $wall = Resolve-Setting $Wallpaper 'WALLPAPER' 'true' @('true', 'false')
+$keepRaw = if ($Keep) { $Keep } elseif ($conf.ContainsKey('KEEP') -and $conf['KEEP']) { $conf['KEEP'] } else { 'chrome' }
+$keep = (@(($keepRaw -split '[,\s]+') | Where-Object { $_ } | ForEach-Object { $_.ToLowerInvariant() }) -join ',')
 
 function T([string]$En, [string]$Id) { if ($lang -eq 'id') { $Id } else { $En } }
 function Write-Kz([string]$En, [string]$Id) { Write-Host ('[kazama] ' + (T $En $Id)) }
@@ -44,14 +47,14 @@ function Write-Kz([string]$En, [string]$Id) { Write-Host ('[kazama] ' + (T $En $
 # ---- install files to C:\Kazama ---------------------------------------------
 $dir = 'C:\Kazama'
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
-foreach ($file in 'kazama-booster.ps1', 'kazama-wallpaper.ps1') {
+foreach ($file in 'kazama-booster.ps1', 'kazama-catalog.psd1', 'kazama-wallpaper.ps1') {
     Copy-Item -Path (Join-Path $PSScriptRoot $file) -Destination $dir -Force
 }
 $image = @((Join-Path $PSScriptRoot 'wallpaper.png'), (Join-Path $PSScriptRoot '..\assets\wallpaper.png')) |
     Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($image) { Copy-Item -Path $image -Destination (Join-Path $dir 'wallpaper.png') -Force }
 
-@("LANG=$lang", "BOOSTER=$boost", "SCHEDULE=$sched", "WALLPAPER=$wall") | Set-Content -Path (Join-Path $dir 'kazama.conf') -Encoding ascii
+@("LANG=$lang", "BOOSTER=$boost", "SCHEDULE=$sched", "WALLPAPER=$wall", "KEEP=$keep") | Set-Content -Path (Join-Path $dir 'kazama.conf') -Encoding ascii
 Write-Kz "Kazama files installed in $dir" "File Kazama dipasang di $dir"
 
 $ps = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
@@ -76,7 +79,7 @@ if ($boost -ne 'off') {
     $shell = New-Object -ComObject WScript.Shell
     $lnk = $shell.CreateShortcut('C:\Users\Public\Desktop\Kazama Storage Booster.lnk')
     $lnk.TargetPath = $ps
-    $lnk.Arguments = "$flags -File `"$dir\kazama-booster.ps1`" -Mode $boost -Language $lang"
+    $lnk.Arguments = "$flags -File `"$dir\kazama-booster.ps1`" -Mode $boost -Language $lang -Keep $keep"
     $lnk.WorkingDirectory = $dir
     $lnk.IconLocation = "$env:SystemRoot\System32\cleanmgr.exe,0"
     $lnk.Description = 'Kazama Storage Booster'
@@ -84,7 +87,7 @@ if ($boost -ne 'off') {
     Write-Kz 'Desktop shortcut "Kazama Storage Booster" created' 'Shortcut desktop "Kazama Storage Booster" dibuat'
 
     if ($sched -ne 'off') {
-        $action = New-ScheduledTaskAction -Execute $ps -Argument "$flags -File `"$dir\kazama-booster.ps1`" -Mode $boost -Language $lang -Quiet -NoPause"
+        $action = New-ScheduledTaskAction -Execute $ps -Argument "$flags -File `"$dir\kazama-booster.ps1`" -Mode $boost -Language $lang -Keep $keep -Quiet -NoPause"
         $trigger = if ($sched -eq 'daily') { New-ScheduledTaskTrigger -Daily -At '03:00' } else { New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At '03:00' }
         $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
         Register-ScheduledTask -TaskName 'Kazama Storage Booster' -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
@@ -94,5 +97,5 @@ if ($boost -ne 'off') {
 
 # ---- run once now -----------------------------------------------------------
 if ($RunNow -and $boost -ne 'off') {
-    & $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dir 'kazama-booster.ps1') -Mode $boost -Language $lang -Quiet -NoPause
+    & $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dir 'kazama-booster.ps1') -Mode $boost -Language $lang -Keep $keep -Quiet -NoPause
 }

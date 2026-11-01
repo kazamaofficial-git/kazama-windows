@@ -89,7 +89,7 @@
           "required": false,
           "secret": false,
           "defaultValue": "safe",
-          "description": "Storage Booster inside Windows: off, safe (caches/temp/update leftovers) or deep (also DISM ResetBase, hibernation, shadow copies, event logs). Applied at first install; edit C:\\Kazama\\kazama.conf later."
+          "description": "Storage Booster inside Windows: off, safe (caches/temp), deep (+ DISM ResetBase, hibernation, shadow copies, event logs) or max (+ removes Edge, Firefox, Unity, R, Haskell, Android, Julia, Miniconda, Visual Studio, databases; Chrome is installed/kept). Applied at first install; edit C:\\Kazama\\kazama.conf later."
         },
         "BOOSTER_SCHEDULE": {
           "required": false,
@@ -102,6 +102,12 @@
           "secret": false,
           "defaultValue": "true",
           "description": "Apply the Kazama wallpaper on each user's first logon (true/false)."
+        },
+        "BOOSTER_KEEP": {
+          "required": false,
+          "secret": false,
+          "defaultValue": "chrome",
+          "description": "Comma separated catalog ids that max mode must NOT remove (e.g. chrome,visualstudio). See windows/kazama-catalog.psd1."
         }
       }
     }

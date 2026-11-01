@@ -67,7 +67,8 @@ Both modes include the **Storage Booster** and the Kazama **wallpaper**.
 | `RDP_USERNAME` | — | `kazama` | Administrator account created at install. |
 | `TAILSCALE_AUTHKEY` | — | — | Enables private access over Tailscale. Use an **ephemeral, reusable** key. |
 | `TAILSCALE_HOSTNAME` | — | `kazama-windows` | Machine name in your tailnet. |
-| `BOOSTER_MODE` | — | `safe` | `off`, `safe`, `deep` — see [Storage Booster](#-storage-booster). |
+| `BOOSTER_MODE` | — | `safe` | `off`, `safe`, `deep`, `max` — see [Storage Booster](#-storage-booster). |
+| `BOOSTER_KEEP` | — | `chrome` | Catalog ids that `max` must **not** remove, e.g. `chrome,visualstudio`. |
 | `BOOSTER_SCHEDULE` | — | `weekly` | `off`, `daily`, `weekly` (03:00, inside Windows). |
 | `KAZAMA_WALLPAPER` | — | `true` | Apply the Kazama wallpaper on each user's first logon. |
 | `RAM_SIZE` / `CPU_CORES` / `DISK_SIZE` | — | `4G` / `2` / `40G` | VM resources (must fit your plan / Volume). |
@@ -87,7 +88,7 @@ Both modes include the **Storage Booster** and the Kazama **wallpaper**.
 4. **Actions → "Kazama Windows RDP (Tailscale)" → Run workflow** and choose **windows-latest**, **windows-2025** or **windows-2022**, plus the booster level.
 5. When the run reaches *Keep session alive*, open the **job summary** for the address, then connect.
 
-Inputs: Windows version · `boost` (off/safe/deep) · `duration` (max 345 min) · `idle_timeout` (stops when nobody is connected) · `username` · Tailscale name · extra Chocolatey `packages` · `save_files` (uploads Desktop + Documents when it ends) · `language`.
+Inputs: Windows version · `boost` (off/safe/deep/**max**, default `max`) · `keep` (apps `max` must not remove) · `duration` (max 345 min) · `idle_timeout` (stops when nobody is connected) · `username` · Tailscale name · extra Chocolatey `packages` · `save_files` (uploads Desktop + Documents when it ends) · `language`.
 
 ---
 
@@ -109,12 +110,21 @@ Frees disk space on `C:` by deleting files Windows can rebuild or never needs, t
 | Mode | What it removes |
 |------|-----------------|
 | **safe** | Temp files, crash dumps, Windows Update download cache, Delivery Optimization cache, error reports, CBS logs, Edge/Chrome caches, npm/pip caches, Recycle Bin, + disk TRIM |
-| **deep** | everything in *safe* **plus** Windows component store clean-up (`DISM /ResetBase`), hibernation file, shadow copies, event logs, `Windows.old`, and — on GitHub runners — bulky pre-installed SDKs (Android, ghcup, Miniconda, MySQL, PostgreSQL, MongoDB) |
+| **deep** | everything in *safe* **plus** Windows component store clean-up (`DISM /ResetBase`), hibernation file, shadow copies, event logs, `Windows.old`, installer package cache |
+| **max** | everything in *deep* **plus uninstalls/deletes the apps and SDKs in [`windows/kazama-catalog.psd1`](windows/kazama-catalog.psd1)**: Edge, Firefox, Unity, R (+ Rtools), Haskell (ghcup/cabal), Android SDK, Julia, Miniconda, Rust, MSYS2, MySQL, PostgreSQL, MongoDB, Cosmos DB Emulator and **Visual Studio** |
+
+**`safe` only frees caches, so expect a small gain (about 1 GB on a runner).** The big wins on GitHub runners come from `max`, which removes the pre-installed apps and SDKs.
+
+`max` details:
+- **Chrome is always kept.** If Edge is to be removed and Chrome is missing, Chrome is installed first; if that fails, Edge stays.
+- Each catalog entry only runs when it is actually installed, and version folders (`R-4.3.x`, `Visual Studio\2022` …) are matched with wildcards, so the same catalog works on `windows-latest`, `windows-2025` and `windows-2022`. The detected profile (`win2022` / `win2025`) is printed in the log and the job summary.
+- **Protect anything with `keep`** (Actions input) or `BOOSTER_KEEP` (Railway), e.g. `chrome,visualstudio`. Entry ids are listed in the catalog file; add your own entries there.
+- Deleting big trees (Visual Studio is tens of GB) takes a few minutes. The log shows how much each entry freed.
 
 - **Desktop shortcut** *Kazama Storage Booster* — run it any time (it asks for admin rights).
 - **Automatic run** — Railway mode: scheduled task (`BOOSTER_SCHEDULE`); Actions mode: runs before you connect.
 - Settings and log: `C:\Kazama\kazama.conf`, `C:\Kazama\booster.log`.
-- `deep` is for disposable desktops: it makes installed Windows updates non-removable.
+- `deep` and `max` are for disposable desktops: Windows updates become non-removable and apps are gone for good.
 
 ---
 
@@ -131,7 +141,8 @@ Frees disk space on `C:` by deleting files Windows can rebuild or never needs, t
 ├── windows/                         # runs INSIDE Windows (both modes)
 │   ├── install.bat                  # Railway: executed by dockur at the end of install
 │   ├── kazama-setup.ps1             # wallpaper task, booster shortcut + schedule
-│   ├── kazama-booster.ps1           # Storage Booster
+│   ├── kazama-booster.ps1           # Storage Booster (safe / deep / max)
+│   ├── kazama-catalog.psd1          # apps & SDKs that `max` removes (editable)
 │   └── kazama-wallpaper.ps1         # per-user wallpaper
 ├── scripts/                         # Mode B: GitHub Actions runner scripts
 ├── assets/                          # wallpaper + screenshot

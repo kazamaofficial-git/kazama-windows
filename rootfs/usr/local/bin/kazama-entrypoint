@@ -125,14 +125,16 @@ pick() { # pick VALUE DEFAULT allowed...  → prints VALUE if allowed, else DEFA
 }
 
 write_oem_config() {
-  local booster schedule wallpaper
-  booster="$(pick "${BOOSTER_MODE:-safe}" safe off safe deep)"
+  local booster schedule wallpaper keep
+  booster="$(pick "${BOOSTER_MODE:-safe}" safe off safe deep max)"
   schedule="$(pick "${BOOSTER_SCHEDULE:-weekly}" weekly off daily weekly)"
   wallpaper="$(pick "${KAZAMA_WALLPAPER:-true}" true true false)"
+  keep="${BOOSTER_KEEP:-chrome}"
+  [[ $keep =~ ^[A-Za-z0-9,\ _-]+$ ]] || keep=chrome
 
   install -d "$OEM_DIR"
-  printf 'LANG=%s\nBOOSTER=%s\nSCHEDULE=%s\nWALLPAPER=%s\n' \
-    "$KZ_LANG" "$booster" "$schedule" "$wallpaper" >"$OEM_DIR/kazama.conf"
+  printf 'LANG=%s\nBOOSTER=%s\nSCHEDULE=%s\nWALLPAPER=%s\nKEEP=%s\n' \
+    "$KZ_LANG" "$booster" "$schedule" "$wallpaper" "$keep" >"$OEM_DIR/kazama.conf"
   BOOSTER_LABEL="$booster ($schedule)"
 }
 
