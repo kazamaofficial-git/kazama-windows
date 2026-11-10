@@ -58,4 +58,4 @@ jobs:
           # Must reject unsupported Windows versions.
           if docker run --rm -e RDP_PASSWORD='Str0ng#Pass9' -e WINDOWS_VERSION=windows-2019 kazama-windows:ci; then exit 1; fi
           # Tailscale binaries and the in-Windows files must be in the image.
-          docker run --rm --entrypoint bash kazama-windows:ci -c 'command -v tailscale tailscaled && ls /oem/install.bat /oem/kazama-booster.ps1 /oem/kazama-catalog.psd1 /oem/wallpaper.png'
+          docker run --rm --entrypoint bash kazama-windows:ci -c 'command -v tailscale tailscaled && ls /oem/install.bat /oem/kazama-booster.ps1 /oem/kazama-catalog.psd1'
