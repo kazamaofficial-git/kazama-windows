@@ -35,8 +35,8 @@ COPY --from=tailscale /usr/local/bin/tailscale /usr/local/bin/tailscaled /usr/lo
 
 COPY rootfs/ /
 # dockur copies /oem to C:\OEM inside Windows and runs install.bat at the end of the install.
-COPY windows/ /oem/
-COPY assets/wallpaper.png /oem/wallpaper.png
+# The wallpaper is optional: the glob keeps the build working if assets/wallpaper.png is missing.
+COPY windows/ assets/wallpaper.pn[g] /oem/
 RUN chmod 0755 /usr/local/bin/kazama-entrypoint \
     && chmod 0644 /usr/local/lib/kazama/common.sh
 
