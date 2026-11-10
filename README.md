@@ -34,6 +34,18 @@
 
 Both modes include the **Storage Booster** and the Kazama **wallpaper**.
 
+## 🧭 Where can I run this?
+
+| Host | Windows runs… | Speed | GPU | How |
+|---|---|---|---|---|
+| **Railway** | inside QEMU, **software emulation** | slow | ❌ | [Mode A](#️-mode-a--railway) — the platform has no KVM |
+| **Linux host / VPS with KVM + Docker** | inside QEMU **with KVM** | near-native | only with your own passthrough setup | `docker compose up` — see [Run locally](#️-run-locally). Many cheap VPSes have no nested KVM: check with `kvm-ok` |
+| **A Windows machine you control** (Server, 10/11 Pro, cloud Windows VM) | **natively — no virtual machine at all** | full | ✅ the host's real GPU | [Run on your own Windows machine](#-run-on-your-own-windows-machine-no-vm) |
+| **macOS** | cannot host it (no KVM in Docker Desktop) | — | — | use the Mac as the **RDP client** (Windows App) |
+| **GitHub Actions** | real runner VM | fast | ❌ | [Mode B](#️-mode-b--github-actions-tailscale) — against GitHub's terms, can get you suspended |
+
+**If you want to avoid the GitHub risk and still be fast, use the last-but-one options:** a Linux box with KVM, or a Windows machine you control.
+
 ## ⚠️ Honest limits
 
 - **Railway is slow.** Railway does not expose `/dev/kvm`, so the first install can take **hours** and the desktop feels sluggish. It also needs a **Volume at `/storage`** (roughly 20–30 GB) and **≥ 4 GB RAM** — check your plan's limits.
@@ -68,6 +80,7 @@ Both modes include the **Storage Booster** and the Kazama **wallpaper**.
 | `TAILSCALE_AUTHKEY` | — | — | Enables private access over Tailscale. Use an **ephemeral, reusable** key. |
 | `TAILSCALE_HOSTNAME` | — | `kazama-windows` | Machine name in your tailnet. |
 | `BOOSTER_MODE` | — | `safe` | `off`, `safe`, `deep`, `max` — see [Storage Booster](#-storage-booster). |
+| `KAZAMA_TUNE` | — | `light` | Performance tuning inside Windows for emulation: `off`, `light`, `max` (max also turns off Defender real-time and Windows Update). See `windows/kazama-tune.ps1`. |
 | `BOOSTER_KEEP` | — | `chrome` | Catalog ids that `max` must **not** remove, e.g. `chrome,visualstudio`. |
 | `BOOSTER_SCHEDULE` | — | `weekly` | `off`, `daily`, `weekly` (03:00, inside Windows). |
 | `KAZAMA_WALLPAPER` | — | `true` | Apply the Kazama wallpaper on each user's first logon. |
@@ -140,7 +153,9 @@ Frees disk space on `C:` by deleting files Windows can rebuild or never needs, t
 │   └── lib/kazama/common.sh         # i18n (en/id) + logging
 ├── windows/                         # runs INSIDE Windows (both modes)
 │   ├── install.bat                  # Railway: executed by dockur at the end of install
-│   ├── kazama-setup.ps1             # wallpaper task, booster shortcut + schedule
+│   ├── kazama-setup.ps1             # wallpaper task, booster shortcut + schedule, tuning
+│   ├── kazama-tune.ps1              # performance tuning for emulated / small Windows
+│   ├── install-windows.ps1          # install on your own Windows machine (no VM)
 │   ├── kazama-booster.ps1           # Storage Booster (safe / deep / max)
 │   ├── kazama-catalog.psd1          # apps & SDKs that `max` removes (editable)
 │   └── kazama-wallpaper.ps1         # per-user wallpaper
@@ -150,6 +165,36 @@ Frees disk space on `C:` by deleting files Windows can rebuild or never needs, t
     ├── rdp.yml                      # Mode B workflow
     └── ci.yml                       # ShellCheck + PowerShell syntax + Docker build
 ```
+
+## 🪟 Run on your own Windows machine (no VM)
+
+On a real Windows Server / Windows 10-11 **Pro** (home PC, office server, cloud Windows VM) there is **no virtual machine and no emulation** — it is just Windows, at full speed, with the host's real GPU. The installer turns it into a ready RDP desktop: RDP + login user + optional Tailscale + Storage Booster + wallpaper.
+
+1. Download this repository as a ZIP (or `git clone`) onto the machine.
+2. Open **PowerShell as Administrator** in the repository folder and run:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File windows\install-windows.ps1 -Username kazama -TailscaleAuthKey tskey-auth-xxxx -Booster safe
+   ```
+
+   You are asked for the password interactively (it never appears on the command line). Options: `-Booster off|safe|deep|max`, `-Tune off|light|max`, `-Language en|id`, `-Keep chrome,...`, `-SkipWallpaper`; omit `-TailscaleAuthKey` to skip Tailscale.
+3. Connect with **Windows App** to the PC name printed at the end.
+
+Windows Home cannot host Remote Desktop. Over the internet prefer Tailscale instead of exposing port 3389.
+
+## ❓ FAQ
+
+**Why are there red lines in the Railway logs, but the container keeps running?**
+Those are warnings from the upstream image, not crashes. Typical ones: *"KVM acceleration is not available"* (Railway has no `/dev/kvm`) and *"failed to create bridge … NET_ADMIN"* (Railway containers are unprivileged). Windows then continues with software emulation and user-mode networking — RDP port 3389 is still forwarded. Only worry if the container actually restarts or the logs stop; in that case read the last red lines.
+
+**Can I add a GPU on Railway?**
+No. Railway runs unprivileged containers and its support states it provides no `/dev/kvm`, privileged containers or nested virtualization; I found no GPU offering for containers either. A GPU needs a host that exposes one — your own Windows machine (native) or a Linux host with your own GPU passthrough.
+
+**Can the virtual machine be removed?**
+Not on Railway: Windows needs its own kernel, and a Linux container cannot provide it. The only way to have *no VM* is to run Windows **natively** (see above). Railway has said a future VM-based runtime could allow virtualization; there is no date.
+
+**How do I make it less slow on Railway?**
+Set `KAZAMA_TUNE=light` (default) or `max` — it disables background work that eats emulated CPU (Server Manager, indexing, telemetry, maintenance, and with `max` also Defender real-time and Windows Update). Use `BOOSTER_MODE=max` for space. It stays slow: expect minutes, not seconds, for heavy actions.
 
 ## 🔒 Security
 
