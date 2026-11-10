@@ -108,6 +108,12 @@
           "secret": false,
           "defaultValue": "chrome",
           "description": "Comma separated catalog ids that max mode must NOT remove (e.g. chrome,visualstudio). See windows/kazama-catalog.psd1."
+        },
+        "KAZAMA_TUNE": {
+          "required": false,
+          "secret": false,
+          "defaultValue": "light",
+          "description": "Performance tuning inside Windows for software emulation: off, light (Server Manager, indexing, telemetry, maintenance off) or max (also Defender real-time and Windows Update off). Applied at first install."
         }
       }
     }
