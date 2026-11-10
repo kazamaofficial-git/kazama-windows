@@ -8,7 +8,7 @@
 #   Actions  : the workflow runs it right after enabling RDP
 #
 # Settings come from parameters, else from kazama.conf next to this script, else defaults.
-#   LANG=en|id   BOOSTER=off|safe|deep|max   SCHEDULE=off|daily|weekly   WALLPAPER=true|false   KEEP=chrome,...
+#   LANG=en|id   BOOSTER=off|safe|deep|max   SCHEDULE=off|daily|weekly   WALLPAPER=true|false   KEEP=chrome,...   TUNE=off|light|max
 [CmdletBinding()]
 param(
     [string]$Language,
@@ -16,6 +16,7 @@ param(
     [string]$Schedule,
     [string]$Wallpaper,
     [string]$Keep,
+    [string]$Tune,
     [switch]$RunNow
 )
 $ErrorActionPreference = 'Continue'
@@ -38,6 +39,7 @@ $lang = Resolve-Setting $Language 'LANG' 'en' @('en', 'id')
 $boost = Resolve-Setting $Booster 'BOOSTER' 'safe' @('off', 'safe', 'deep', 'max')
 $sched = Resolve-Setting $Schedule 'SCHEDULE' 'weekly' @('off', 'daily', 'weekly')
 $wall = Resolve-Setting $Wallpaper 'WALLPAPER' 'true' @('true', 'false')
+$tune = Resolve-Setting $Tune 'TUNE' 'light' @('off', 'light', 'max')
 $keepRaw = if ($Keep) { $Keep } elseif ($conf.ContainsKey('KEEP') -and $conf['KEEP']) { $conf['KEEP'] } else { 'chrome' }
 $keep = (@(($keepRaw -split '[,\s]+') | Where-Object { $_ } | ForEach-Object { $_.ToLowerInvariant() }) -join ',')
 
@@ -47,14 +49,14 @@ function Write-Kz([string]$En, [string]$Id) { Write-Host ('[kazama] ' + (T $En $
 # ---- install files to C:\Kazama ---------------------------------------------
 $dir = 'C:\Kazama'
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
-foreach ($file in 'kazama-booster.ps1', 'kazama-catalog.psd1', 'kazama-wallpaper.ps1') {
+foreach ($file in 'kazama-booster.ps1', 'kazama-catalog.psd1', 'kazama-tune.ps1', 'kazama-wallpaper.ps1') {
     Copy-Item -Path (Join-Path $PSScriptRoot $file) -Destination $dir -Force
 }
 $image = @((Join-Path $PSScriptRoot 'wallpaper.png'), (Join-Path $PSScriptRoot '..\assets\wallpaper.png')) |
     Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($image) { Copy-Item -Path $image -Destination (Join-Path $dir 'wallpaper.png') -Force }
 
-@("LANG=$lang", "BOOSTER=$boost", "SCHEDULE=$sched", "WALLPAPER=$wall", "KEEP=$keep") | Set-Content -Path (Join-Path $dir 'kazama.conf') -Encoding ascii
+@("LANG=$lang", "BOOSTER=$boost", "SCHEDULE=$sched", "WALLPAPER=$wall", "KEEP=$keep", "TUNE=$tune") | Set-Content -Path (Join-Path $dir 'kazama.conf') -Encoding ascii
 Write-Kz "Kazama files installed in $dir" "File Kazama dipasang di $dir"
 
 $ps = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
@@ -96,6 +98,9 @@ if ($boost -ne 'off') {
 }
 
 # ---- run once now -----------------------------------------------------------
+if ($RunNow -and $tune -ne 'off') {
+    & $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dir 'kazama-tune.ps1') -Level $tune -Language $lang -Quiet
+}
 if ($RunNow -and $boost -ne 'off') {
     & $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dir 'kazama-booster.ps1') -Mode $boost -Language $lang -Keep $keep -Quiet -NoPause
 }
