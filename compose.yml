@@ -9,6 +9,9 @@ services:
       WINDOWS_VERSION: ${WINDOWS_VERSION:-windows-latest}   # windows-latest | windows-2025 | windows-2022
       RDP_USERNAME: ${RDP_USERNAME:-kazama}
       APP_LANG: ${APP_LANG:-en}                              # en | id
+      TAILSCALE_AUTHKEY: ${TAILSCALE_AUTHKEY:-}              # optional: private RDP over Tailscale
+      BOOSTER_MODE: ${BOOSTER_MODE:-safe}                    # off | safe | deep | max
+      KAZAMA_TUNE: ${KAZAMA_TUNE:-off}                       # off | light | max  (not needed with KVM)
     devices:
       - /dev/kvm
       - /dev/net/tun
