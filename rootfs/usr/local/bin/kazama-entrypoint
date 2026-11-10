@@ -125,16 +125,17 @@ pick() { # pick VALUE DEFAULT allowed...  → prints VALUE if allowed, else DEFA
 }
 
 write_oem_config() {
-  local booster schedule wallpaper keep
+  local booster schedule wallpaper keep tune
   booster="$(pick "${BOOSTER_MODE:-safe}" safe off safe deep max)"
   schedule="$(pick "${BOOSTER_SCHEDULE:-weekly}" weekly off daily weekly)"
   wallpaper="$(pick "${KAZAMA_WALLPAPER:-true}" true true false)"
+  tune="$(pick "${KAZAMA_TUNE:-light}" light off light max)"
   keep="${BOOSTER_KEEP:-chrome}"
   [[ $keep =~ ^[A-Za-z0-9,\ _-]+$ ]] || keep=chrome
 
   install -d "$OEM_DIR"
-  printf 'LANG=%s\nBOOSTER=%s\nSCHEDULE=%s\nWALLPAPER=%s\nKEEP=%s\n' \
-    "$KZ_LANG" "$booster" "$schedule" "$wallpaper" "$keep" >"$OEM_DIR/kazama.conf"
+  printf 'LANG=%s\nBOOSTER=%s\nSCHEDULE=%s\nWALLPAPER=%s\nKEEP=%s\nTUNE=%s\n' \
+    "$KZ_LANG" "$booster" "$schedule" "$wallpaper" "$keep" "$tune" >"$OEM_DIR/kazama.conf"
   BOOSTER_LABEL="$booster ($schedule)"
 }
 
@@ -216,6 +217,9 @@ BANNER
   kz_info \
     "First boot downloads and installs Windows — follow the progress in these logs." \
     "Boot pertama mengunduh dan menginstal Windows — pantau progres di log ini."
+  kz_info \
+    "Red lines such as 'KVM acceleration is not available' or 'failed to create bridge ... NET_ADMIN' are EXPECTED on Railway: the install continues in software-emulation / user-mode networking." \
+    "Baris merah seperti 'KVM acceleration is not available' atau 'failed to create bridge ... NET_ADMIN' NORMAL di Railway: instalasi tetap lanjut dengan emulasi software / jaringan user-mode."
   kz_info \
     "Connect with Windows App: PC name = RDP address above, then sign in with the username/password." \
     "Hubungkan dengan Windows App: PC name = alamat RDP di atas, lalu masuk dengan username/password."
