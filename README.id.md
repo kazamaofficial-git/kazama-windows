@@ -34,6 +34,18 @@
 
 Kedua mode sudah menyertakan **Storage Booster** dan **wallpaper** Kazama.
 
+## 🧭 Di mana bisa dijalankan?
+
+| Host | Windows berjalan… | Kecepatan | GPU | Cara |
+|---|---|---|---|---|
+| **Railway** | di dalam QEMU, **emulasi software** | lambat | ❌ | [Mode A](#️-mode-a--railway) — platformnya tidak punya KVM |
+| **Host Linux / VPS dengan KVM + Docker** | di dalam QEMU **dengan KVM** | hampir native | hanya dengan setup passthrough sendiri | `docker compose up` — lihat [Jalankan lokal](#️-jalankan-lokal). Banyak VPS murah tanpa nested KVM: cek dengan `kvm-ok` |
+| **Mesin Windows milik Anda** (Server, 10/11 Pro, VM Windows di cloud) | **native — tanpa virtual machine sama sekali** | penuh | ✅ GPU asli host | [Jalankan di mesin Windows sendiri](#-jalankan-di-mesin-windows-sendiri-tanpa-vm) |
+| **macOS** | tidak bisa menjadi host (Docker Desktop tanpa KVM) | — | — | pakai Mac sebagai **klien RDP** (Windows App) |
+| **GitHub Actions** | VM runner asli | cepat | ❌ | [Mode B](#️-mode-b--github-actions-tailscale) — melanggar syarat GitHub, bisa membuat akun disuspend |
+
+**Kalau ingin menghindari risiko GitHub tapi tetap cepat, pakai dua opsi sebelum terakhir:** server Linux dengan KVM, atau mesin Windows milik Anda.
+
 ## ⚠️ Batasan yang jujur
 
 - **Railway lambat.** Railway tidak menyediakan `/dev/kvm`, jadi instalasi pertama bisa **berjam-jam** dan desktop terasa berat. Juga butuh **Volume di `/storage`** (kira-kira 20–30 GB) dan **RAM ≥ 4 GB** — cek batas plan Anda.
@@ -68,6 +80,7 @@ Kedua mode sudah menyertakan **Storage Booster** dan **wallpaper** Kazama.
 | `TAILSCALE_AUTHKEY` | — | — | Mengaktifkan akses privat lewat Tailscale. Pakai key **ephemeral + reusable**. |
 | `TAILSCALE_HOSTNAME` | — | `kazama-windows` | Nama mesin di tailnet Anda. |
 | `BOOSTER_MODE` | — | `safe` | `off`, `safe`, `deep`, `max` — lihat [Storage Booster](#-storage-booster). |
+| `KAZAMA_TUNE` | — | `light` | Tuning performa di dalam Windows untuk emulasi: `off`, `light`, `max` (max juga mematikan Defender real-time dan Windows Update). Lihat `windows/kazama-tune.ps1`. |
 | `BOOSTER_KEEP` | — | `chrome` | Id katalog yang **tidak** boleh dihapus `max`, mis. `chrome,visualstudio`. |
 | `BOOSTER_SCHEDULE` | — | `weekly` | `off`, `daily`, `weekly` (03:00, di dalam Windows). |
 | `KAZAMA_WALLPAPER` | — | `true` | Terapkan wallpaper Kazama saat logon pertama tiap user. |
@@ -140,7 +153,9 @@ Detail `max`:
 │   └── lib/kazama/common.sh         # i18n (en/id) + logging
 ├── windows/                         # berjalan DI DALAM Windows (kedua mode)
 │   ├── install.bat                  # Railway: dijalankan dockur di akhir instalasi
-│   ├── kazama-setup.ps1             # task wallpaper, shortcut + jadwal booster
+│   ├── kazama-setup.ps1             # task wallpaper, shortcut + jadwal booster, tuning
+│   ├── kazama-tune.ps1              # tuning performa untuk Windows emulasi / kecil
+│   ├── install-windows.ps1          # pasang di mesin Windows sendiri (tanpa VM)
 │   ├── kazama-booster.ps1           # Storage Booster (safe / deep / max)
 │   ├── kazama-catalog.psd1          # aplikasi & SDK yang dihapus `max` (bisa diedit)
 │   └── kazama-wallpaper.ps1         # wallpaper per user
@@ -150,6 +165,36 @@ Detail `max`:
     ├── rdp.yml                      # workflow Mode B
     └── ci.yml                       # ShellCheck + sintaks PowerShell + Docker build
 ```
+
+## 🪟 Jalankan di mesin Windows sendiri (tanpa VM)
+
+Di Windows Server / Windows 10-11 **Pro** asli (PC rumah, server kantor, VM Windows di cloud) **tidak ada virtual machine dan tidak ada emulasi** — hanya Windows, kecepatan penuh, dengan GPU asli host. Installer mengubahnya menjadi desktop RDP siap pakai: RDP + user login + Tailscale (opsional) + Storage Booster + wallpaper.
+
+1. Unduh repository ini sebagai ZIP (atau `git clone`) ke mesin tersebut.
+2. Buka **PowerShell sebagai Administrator** di folder repository lalu jalankan:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File windows\install-windows.ps1 -Username kazama -TailscaleAuthKey tskey-auth-xxxx -Booster safe
+   ```
+
+   Password ditanyakan secara interaktif (tidak pernah muncul di command line). Opsi: `-Booster off|safe|deep|max`, `-Tune off|light|max`, `-Language en|id`, `-Keep chrome,...`, `-SkipWallpaper`; hilangkan `-TailscaleAuthKey` untuk melewati Tailscale.
+3. Hubungkan dengan **Windows App** ke PC name yang dicetak di akhir.
+
+Windows Home tidak bisa menjadi host Remote Desktop. Lewat internet utamakan Tailscale daripada membuka port 3389.
+
+## ❓ FAQ
+
+**Kenapa ada baris merah di log Railway, tapi container tetap jalan?**
+Itu peringatan dari image upstream, bukan crash. Yang umum: *"KVM acceleration is not available"* (Railway tidak punya `/dev/kvm`) dan *"failed to create bridge … NET_ADMIN"* (container Railway tanpa hak istimewa). Windows lalu lanjut dengan emulasi software dan jaringan user-mode — port RDP 3389 tetap diteruskan. Baru perlu khawatir jika container benar-benar restart atau log berhenti; saat itu baca baris merah terakhir.
+
+**Bisa menambah GPU di Railway?**
+Tidak. Railway menjalankan container tanpa hak istimewa dan dukungan mereka menyatakan tidak menyediakan `/dev/kvm`, container privileged, atau nested virtualization; saya juga tidak menemukan tawaran GPU untuk container. GPU butuh host yang mengeksposnya — mesin Windows Anda sendiri (native) atau host Linux dengan passthrough GPU sendiri.
+
+**Bisa menghilangkan virtual machine-nya?**
+Tidak di Railway: Windows butuh kernelnya sendiri, dan container Linux tidak bisa menyediakannya. Satu-satunya cara *tanpa VM* adalah menjalankan Windows **native** (lihat di atas). Railway pernah menyebut runtime berbasis VM di masa depan bisa mengizinkan virtualisasi; belum ada tanggal.
+
+**Bagaimana membuatnya tidak terlalu lambat di Railway?**
+Isi `KAZAMA_TUNE=light` (default) atau `max` — mematikan pekerjaan latar belakang yang memakan CPU emulasi (Server Manager, indexing, telemetri, maintenance, dan di `max` juga Defender real-time dan Windows Update). Pakai `BOOSTER_MODE=max` untuk ruang. Tetap lambat: perkirakan menit, bukan detik, untuk aksi berat.
 
 ## 🔒 Keamanan
 
