@@ -38,6 +38,26 @@ jobs:
           }
           if ($failed) { exit 1 }
 
+  egg:
+    name: Pterodactyl egg
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate the egg JSON
+        run: |
+          python3 - <<'PY'
+          import json
+          egg = json.load(open("pterodactyl/egg-kazama-windows.json"))
+          assert egg["meta"]["version"] == "PTDL_v2"
+          names = {v["env_variable"] for v in egg["variables"]}
+          required = {"RDP_PASSWORD", "RDP_USERNAME", "WINDOWS_VERSION", "RAM_SIZE", "CPU_CORES", "DISK_SIZE", "APP_LANG",
+                      "TAILSCALE_AUTHKEY", "TAILSCALE_HOSTNAME", "BOOSTER_MODE", "BOOSTER_SCHEDULE", "BOOSTER_KEEP",
+                      "KAZAMA_WALLPAPER", "KAZAMA_TUNE"}
+          missing = required - names
+          assert not missing, f"missing variables: {missing}"
+          print("egg OK:", len(names), "variables")
+          PY
+
   docker:
     name: Docker build
     runs-on: ubuntu-latest
