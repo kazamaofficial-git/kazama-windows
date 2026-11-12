@@ -19,14 +19,14 @@ if ([string]::IsNullOrEmpty($key)) {
 Write-Host "::add-mask::$key"
 
 Write-KzInfo "Installing Tailscale ..." "Memasang Tailscale ..."
-& (Get-KzChoco) install tailscale -y --no-progress --limit-output | Out-Null
+& (Get-KzChoco) install tailscale -y --no-progress --limit-output 2>&1 | Out-Null
 
 $ts = 'C:\Program Files\Tailscale\tailscale.exe'
 if (-not (Test-Path $ts)) { Stop-Kz "Tailscale could not be installed." "Tailscale gagal dipasang." }
 Start-Service -Name Tailscale -ErrorAction SilentlyContinue
 
 $name = if ($env:KZ_TS_HOSTNAME) { $env:KZ_TS_HOSTNAME } else { "kazama-win-$($env:GITHUB_RUN_ID)" }
-& $ts up "--authkey=$key" "--hostname=$name" --unattended --reset
+& $ts up "--authkey=$key" "--hostname=$name" --unattended --reset 2>&1 | ForEach-Object { Write-Host "$_" }
 if ($LASTEXITCODE -ne 0) { Stop-Kz "tailscale up failed - check the auth key." "tailscale up gagal - periksa auth key." }
 
 $ip = $null
