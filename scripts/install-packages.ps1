@@ -18,7 +18,7 @@ foreach ($pkg in $list) {
         continue
     }
     Write-KzInfo "Installing $pkg ..." "Memasang $pkg ..."
-    & $choco install $pkg -y --no-progress --limit-output
+    & $choco install $pkg -y --no-progress --limit-output 2>&1 | ForEach-Object { Write-Host "$_" }
     if ($LASTEXITCODE -notin 0, 1641, 3010) {
         Write-KzWarn "Package $pkg failed (exit $LASTEXITCODE)" "Paket $pkg gagal (exit $LASTEXITCODE)"
     }
