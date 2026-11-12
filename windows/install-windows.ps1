@@ -70,7 +70,7 @@ if ($TailscaleAuthKey) {
     }
     if (-not (Test-Path $ts)) { throw (T 'Tailscale could not be installed.' 'Tailscale gagal dipasang.') }
     Start-Service -Name Tailscale -ErrorAction SilentlyContinue
-    & $ts up "--authkey=$TailscaleAuthKey" "--hostname=$TailscaleHostname" --unattended --reset
+    & $ts up "--authkey=$TailscaleAuthKey" "--hostname=$TailscaleHostname" --unattended --reset 2>&1 | ForEach-Object { Write-Host "$_" }
     if ($LASTEXITCODE -ne 0) { throw (T 'tailscale up failed - check the auth key.' 'tailscale up gagal - periksa auth key.') }
     $address = (& $ts ip -4 2>$null | Select-Object -First 1)
 }
