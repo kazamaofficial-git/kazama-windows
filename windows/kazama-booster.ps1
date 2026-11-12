@@ -6,7 +6,8 @@
 # Frees disk space on C: by deleting files Windows can rebuild or never needs.
 #
 #   -Mode safe   caches, temp files, update leftovers, crash dumps, browser caches
-#   -Mode deep   safe + component-store clean-up (DISM /ResetBase), hibernation file,
+#   -Mode deep   safe + component-store clean-up (DISM /StartComponentCleanup; add /ResetBase with
+#                KZ_DISM_RESETBASE=true), hibernation file,
 #                shadow copies, event logs, Windows.old, installer cache
 #   -Mode max    deep + REMOVES apps/SDKs listed in kazama-catalog.psd1 (Edge, Firefox,
 #                Unity, R, Haskell, Android, Julia, Miniconda, Visual Studio, databases ...).
@@ -26,7 +27,9 @@ param(
     [switch]$Quiet,
     [switch]$NoPause
 )
-$ErrorActionPreference = 'Continue'
+# Expected, harmless failures (file in use, path missing) must never turn the log red.
+# Real problems are reported per step in the Diagnostics section instead.
+$ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference = 'SilentlyContinue'
 
 # ---- settings ---------------------------------------------------------------
@@ -80,18 +83,29 @@ function Remove-Contents([string]$Path) {
     }
 }
 
-function Remove-Tree([string]$Path) {
-    <# Deletes folders/files matching $Path (wildcards allowed). `rd` with the \\?\ prefix is far faster than
-       Remove-Item on huge trees and copes with very long paths; ownership is taken only if needed. #>
+function Invoke-WithTimeout([string]$File, [string[]]$Arguments, [int]$Seconds = 600) {
+    <# Runs a program hidden and NEVER waits longer than $Seconds (the process is killed). Returns its exit code, or -1 on timeout. #>
+    $proc = Start-Process -FilePath $File -ArgumentList $Arguments -PassThru -WindowStyle Hidden
+    if (-not $proc) { return -2 }
+    if (-not $proc.WaitForExit($Seconds * 1000)) {
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+        return -1
+    }
+    return $proc.ExitCode
+}
+
+function Remove-Tree([string]$Path, [int]$TimeoutSeconds = 900) {
+    <# Deletes folders/files matching $Path (wildcards allowed).
+       Folders are emptied by mirroring an EMPTY folder over them with robocopy: multi-threaded, long-path safe, and in
+       backup mode (/B) so ACLs / TrustedInstaller ownership do not matter. This replaces the old takeown /R + icacls /T
+       fallback, which could run for a very long time on huge trees such as Visual Studio. #>
     foreach ($item in @(Get-Item -Path $Path -Force -ErrorAction SilentlyContinue)) {
         $full = $item.FullName
         if (-not $item.PSIsContainer) { Remove-Item -LiteralPath $full -Force -ErrorAction SilentlyContinue; continue }
-        & cmd.exe /d /c "rd /s /q `"\\?\$full`"" 2>&1 | Out-Null
-        if (Test-Path -LiteralPath $full) {
-            & takeown.exe /F $full /R /D Y 2>&1 | Out-Null
-            & icacls.exe $full /grant 'Administrators:F' /T /C /Q 2>&1 | Out-Null
-            & cmd.exe /d /c "rd /s /q `"\\?\$full`"" 2>&1 | Out-Null
-        }
+        $empty = Join-Path $env:TEMP 'kazama-empty'
+        New-Item -ItemType Directory -Force -Path $empty | Out-Null
+        [void](Invoke-WithTimeout 'robocopy.exe' @("`"$empty`"", "`"$full`"", '/MIR', '/B', '/R:0', '/W:0', '/MT:64', '/NFL', '/NDL', '/NJH', '/NJS', '/NP') $TimeoutSeconds)
+        [void](Invoke-WithTimeout 'cmd.exe' @('/d', '/c', "rd /s /q `"\\?\$full`"") 120)
     }
 }
 
@@ -101,13 +115,22 @@ function Get-UserProfiles {
 }
 
 $script:Results = @()
+$script:Diag = @()
 function Invoke-Step([string]$En, [string]$Id, [scriptblock]$Action) {
+    $name = T $En $Id
     $before = Get-FreeBytes
-    if (-not $Quiet) { Write-Host ('  * {0} ...' -f (T $En $Id)) -NoNewline }
-    try { & $Action *> $null } catch { }
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    if (-not $Quiet) { Write-Host ('  * {0} ...' -f $name) -NoNewline }
+    $Error.Clear()
+    try { & $Action *> $null } catch { $script:Diag += [pscustomobject]@{ Step = $name; Count = 1; First = $_.Exception.Message } }
+    # Errors swallowed by -ErrorAction SilentlyContinue are still collected in $Error: keep the first one.
+    if ($Error.Count -gt 0 -and -not ($script:Diag | Where-Object { $_.Step -eq $name })) {
+        $script:Diag += [pscustomobject]@{ Step = $name; Count = $Error.Count; First = (@($Error)[0].Exception.Message -replace '\s+', ' ') }
+    }
     $freed = [Math]::Max(0, (Get-FreeBytes) - $before)
-    if (-not $Quiet) { Write-Host (' +{0}' -f (Format-Size $freed)) -ForegroundColor Green }
-    $script:Results += [pscustomobject]@{ Step = (T $En $Id); Freed = $freed }
+    $seconds = [int]$clock.Elapsed.TotalSeconds
+    if (-not $Quiet) { Write-Host (' +{0}  ({1}s)' -f (Format-Size $freed), $seconds) -ForegroundColor Green }
+    $script:Results += [pscustomobject]@{ Step = $name; Freed = $freed; Seconds = $seconds }
 }
 
 function Stop-ServiceSafe([string]$Name) {
@@ -151,7 +174,7 @@ function Invoke-UninstallEntry($Entry) {
         $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/d', '/s', '/c', "`"$cmd$silent`"" -PassThru -WindowStyle Hidden
     }
     # An uninstaller that waits for user input must never block the booster.
-    if (-not $proc.WaitForExit(600000)) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+    if (-not $proc.WaitForExit(300000)) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
 }
 
 function Test-ChromeInstalled {
@@ -166,8 +189,8 @@ function Install-Chrome {
     if (-not (Test-ChromeInstalled)) {
         $msi = Join-Path $env:TEMP 'kazama-chrome.msi'
         try {
-            Invoke-WebRequest -Uri 'https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi' -OutFile $msi -UseBasicParsing
-            Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i', "`"$msi`"", '/qn', '/norestart' -Wait -WindowStyle Hidden
+            Invoke-WebRequest -Uri 'https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi' -OutFile $msi -UseBasicParsing -TimeoutSec 120
+            [void](Invoke-WithTimeout 'msiexec.exe' @('/i', "`"$msi`"", '/qn', '/norestart') 300)
         } catch { }
     }
     return (Test-ChromeInstalled)
@@ -183,8 +206,7 @@ function Remove-Edge {
     $setup = Get-ChildItem 'C:\Program Files (x86)\Microsoft\Edge\Application\*\Installer\setup.exe' -ErrorAction SilentlyContinue |
         Sort-Object FullName -Descending | Select-Object -First 1
     if ($setup) {
-        Start-Process -FilePath $setup.FullName -Wait -WindowStyle Hidden `
-            -ArgumentList '--uninstall', '--system-level', '--verbose-logging', '--force-uninstall'
+        [void](Invoke-WithTimeout $setup.FullName @('--uninstall', '--system-level', '--verbose-logging', '--force-uninstall') 300)
     }
     return $true
 }
@@ -286,9 +308,11 @@ Invoke-Step 'Recycle Bin' 'Recycle Bin' {
 
 # ---- deep steps -------------------------------------------------------------
 if ($Mode -in 'deep', 'max') {
-    Invoke-Step 'Windows component store (DISM /ResetBase)' 'Component store Windows (DISM /ResetBase)' {
-        Start-Process -FilePath 'dism.exe' -Wait -WindowStyle Hidden `
-            -ArgumentList '/Online', '/Cleanup-Image', '/StartComponentCleanup', '/ResetBase'
+    Invoke-Step 'Windows component store cleanup (DISM)' 'Pembersihan component store Windows (DISM)' {
+        # /ResetBase frees more but can take 10-20 minutes: opt in with KZ_DISM_RESETBASE=true.
+        $dismArgs = @('/Online', '/Cleanup-Image', '/StartComponentCleanup')
+        if ($env:KZ_DISM_RESETBASE -eq 'true') { $dismArgs += '/ResetBase' }
+        [void](Invoke-WithTimeout 'dism.exe' $dismArgs 900)
     }
     Invoke-Step 'Hibernation file' 'File hibernasi' {
         & powercfg.exe -h off
@@ -314,7 +338,13 @@ if ($Mode -in 'deep', 'max') {
 if ($Mode -eq 'max') {
     $catalogFile = Join-Path $PSScriptRoot 'kazama-catalog.psd1'
     if (-not (Test-Path $catalogFile)) { $catalogFile = 'C:\Kazama\kazama-catalog.psd1' }
-    $catalog = if (Test-Path $catalogFile) { Import-PowerShellDataFile -Path $catalogFile } else { @{ Apps = @() } }
+    $catalog = @{ Apps = @() }
+    try {
+        if (Test-Path $catalogFile) { $catalog = Import-PowerShellDataFile -Path $catalogFile -ErrorAction Stop }
+        else { Write-Host ('  ! ' + (T 'Catalog file not found - nothing to remove' 'File katalog tidak ditemukan - tidak ada yang dihapus')) -ForegroundColor Yellow }
+    } catch {
+        Write-Host ('  ! ' + (T 'Catalog could not be read: ' 'Katalog tidak bisa dibaca: ') + $_.Exception.Message) -ForegroundColor Yellow
+    }
 
     foreach ($app in $catalog.Apps) {
         if ($script:KeepList -contains $app.Id.ToLowerInvariant()) { continue }
@@ -326,8 +356,10 @@ if ($Mode -eq 'max') {
 }
 
 # TRIM: lets the virtual disk reclaim the space we just freed.
-Invoke-Step 'Disk TRIM' 'TRIM disk' {
-    Optimize-Volume -DriveLetter C -ReTrim -ErrorAction SilentlyContinue
+if ($env:GITHUB_ACTIONS -ne 'true') {
+    Invoke-Step 'Disk TRIM' 'TRIM disk' {
+        Optimize-Volume -DriveLetter C -ReTrim -ErrorAction SilentlyContinue
+    }
 }
 
 # ---- report -----------------------------------------------------------------
@@ -336,24 +368,44 @@ $gained = [Math]::Max(0, $endFree - $startFree)
 $line = '{0}: {1}  ->  {2}  (+{3})' -f (T 'Free space' 'Ruang kosong'), (Format-Size $startFree), (Format-Size $endFree), (Format-Size $gained)
 
 "$(Get-Date -Format s)  [$Mode]  $line" | Add-Content -Path $log -ErrorAction SilentlyContinue
+foreach ($d in $script:Diag) {
+    "$(Get-Date -Format s)  [diag] $($d.Step): $($d.Count) message(s) - $($d.First)" | Add-Content -Path $log -ErrorAction SilentlyContinue
+}
 
 if ($env:GITHUB_STEP_SUMMARY) {
-    $rows = ($script:Results | Where-Object { $_.Freed -gt 0 } | ForEach-Object { '| {0} | {1} |' -f $_.Step, (Format-Size $_.Freed) }) -join "`n"
+    $rows = ($script:Results | Where-Object { $_.Freed -gt 0 } | ForEach-Object { '| {0} | {1} | {2}s |' -f $_.Step, (Format-Size $_.Freed), $_.Seconds }) -join "`n"
+    $diagRows = ($script:Diag | ForEach-Object { '| {0} | {1} | {2} |' -f $_.Step, $_.Count, (($_.First -replace '\|', '/') -replace '\s+', ' ') }) -join "`n"
     Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Value @"
 
 ### Kazama Storage Booster ($Mode · $($script:Profile.Id))
 
 **$line**
 
-| Step | Freed |
-|---|---|
+| Step | Freed | Time |
+|---|---|---|
 $rows
 
 "@
+    if ($diagRows) {
+        Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Value @"
+
+#### Diagnostics - non-fatal messages per step
+
+Usually harmless (a file in use, a path that does not exist). Look closer only if a step you expected to free space shows nothing.
+
+| Step | Messages | First message |
+|---|---|---|
+$diagRows
+
+"@
+    }
 }
 
 if ($Quiet) {
     Write-Host "[kazama] $line"
+    if ($script:Diag.Count -gt 0) {
+        Write-Host ("::notice::[kazama] " + (T "$($script:Diag.Count) booster step(s) reported non-fatal messages - details in the job summary and C:\Kazama\booster.log" "$($script:Diag.Count) langkah booster melaporkan pesan non-fatal - detail ada di job summary dan C:\Kazama\booster.log"))
+    }
 } else {
     Write-Host ''
     Write-Host "  $line" -ForegroundColor Cyan
