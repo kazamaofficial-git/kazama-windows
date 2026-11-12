@@ -43,6 +43,7 @@ Both modes include the **Storage Booster** and the Kazama **wallpaper**.
 | **A Windows machine you control** (Server, 10/11 Pro, cloud Windows VM) | **natively — no virtual machine at all** | full | ✅ the host's real GPU | [Run on your own Windows machine](#-run-on-your-own-windows-machine-no-vm) |
 | **macOS** | cannot host it (no KVM in Docker Desktop) | — | — | use the Mac as the **RDP client** (Windows App) |
 | **GitHub Actions** | real runner VM | fast | ❌ | [Mode B](#️-mode-b--github-actions-tailscale) — against GitHub's terms, can get you suspended |
+| **Pterodactyl panel** | inside QEMU (needs a relaxed, dedicated Wings node) | slow without KVM | ❌ | [pterodactyl/README.md](pterodactyl/README.md) — egg included |
 
 **If you want to avoid the GitHub risk and still be fast, use the last-but-one options:** a Linux box with KVM, or a Windows machine you control.
 
@@ -123,7 +124,7 @@ Frees disk space on `C:` by deleting files Windows can rebuild or never needs, t
 | Mode | What it removes |
 |------|-----------------|
 | **safe** | Temp files, crash dumps, Windows Update download cache, Delivery Optimization cache, error reports, CBS logs, Edge/Chrome caches, npm/pip caches, Recycle Bin, + disk TRIM |
-| **deep** | everything in *safe* **plus** Windows component store clean-up (`DISM /ResetBase`), hibernation file, shadow copies, event logs, `Windows.old`, installer package cache |
+| **deep** | everything in *safe* **plus** Windows component store clean-up (`DISM`; the slower `/ResetBase` is opt-in with `KZ_DISM_RESETBASE=true`), hibernation file, shadow copies, event logs, `Windows.old`, installer package cache |
 | **max** | everything in *deep* **plus uninstalls/deletes the apps and SDKs in [`windows/kazama-catalog.psd1`](windows/kazama-catalog.psd1)**: Edge, Firefox, Unity, R (+ Rtools), Haskell (ghcup/cabal), Android SDK, Julia, Miniconda, Rust, MSYS2, MySQL, PostgreSQL, MongoDB, Cosmos DB Emulator and **Visual Studio** |
 
 **`safe` only frees caches, so expect a small gain (about 1 GB on a runner).** The big wins on GitHub runners come from `max`, which removes the pre-installed apps and SDKs.
@@ -160,6 +161,7 @@ Frees disk space on `C:` by deleting files Windows can rebuild or never needs, t
 │   ├── kazama-catalog.psd1          # apps & SDKs that `max` removes (editable)
 │   └── kazama-wallpaper.ps1         # per-user wallpaper
 ├── scripts/                         # Mode B: GitHub Actions runner scripts
+├── pterodactyl/                     # Pterodactyl egg + full guide (EN / ID)
 ├── assets/                          # wallpaper + screenshot
 └── .github/workflows/
     ├── rdp.yml                      # Mode B workflow
