@@ -43,6 +43,7 @@ Kedua mode sudah menyertakan **Storage Booster** dan **wallpaper** Kazama.
 | **Mesin Windows milik Anda** (Server, 10/11 Pro, VM Windows di cloud) | **native — tanpa virtual machine sama sekali** | penuh | ✅ GPU asli host | [Jalankan di mesin Windows sendiri](#-jalankan-di-mesin-windows-sendiri-tanpa-vm) |
 | **macOS** | tidak bisa menjadi host (Docker Desktop tanpa KVM) | — | — | pakai Mac sebagai **klien RDP** (Windows App) |
 | **GitHub Actions** | VM runner asli | cepat | ❌ | [Mode B](#️-mode-b--github-actions-tailscale) — melanggar syarat GitHub, bisa membuat akun disuspend |
+| **Panel Pterodactyl** | di dalam QEMU (butuh node Wings dedicated yang dilonggarkan) | lambat tanpa KVM | ❌ | [pterodactyl/README.id.md](pterodactyl/README.id.md) — egg disertakan |
 
 **Kalau ingin menghindari risiko GitHub tapi tetap cepat, pakai dua opsi sebelum terakhir:** server Linux dengan KVM, atau mesin Windows milik Anda.
 
@@ -123,7 +124,7 @@ Membebaskan ruang disk `C:` dengan menghapus file yang bisa dibuat ulang Windows
 | Mode | Yang dihapus |
 |------|--------------|
 | **safe** | File sementara, crash dump, cache unduhan Windows Update, cache Delivery Optimization, laporan error, log CBS, cache Edge/Chrome, cache npm/pip, Recycle Bin, + TRIM disk |
-| **deep** | semua di *safe* **ditambah** pembersihan component store Windows (`DISM /ResetBase`), file hibernasi, shadow copy, event log, `Windows.old`, cache paket installer |
+| **deep** | semua di *safe* **ditambah** pembersihan component store Windows (`DISM`; `/ResetBase` yang lebih lambat opsional dengan `KZ_DISM_RESETBASE=true`), file hibernasi, shadow copy, event log, `Windows.old`, cache paket installer |
 | **max** | semua di *deep* **ditambah menghapus aplikasi dan SDK di [`windows/kazama-catalog.psd1`](windows/kazama-catalog.psd1)**: Edge, Firefox, Unity, R (+ Rtools), Haskell (ghcup/cabal), Android SDK, Julia, Miniconda, Rust, MSYS2, MySQL, PostgreSQL, MongoDB, Cosmos DB Emulator, dan **Visual Studio** |
 
 **`safe` hanya membersihkan cache, jadi hasilnya kecil (sekitar 1 GB di runner).** Hasil besar di runner GitHub datang dari `max`, yang menghapus aplikasi dan SDK bawaan.
@@ -160,6 +161,7 @@ Detail `max`:
 │   ├── kazama-catalog.psd1          # aplikasi & SDK yang dihapus `max` (bisa diedit)
 │   └── kazama-wallpaper.ps1         # wallpaper per user
 ├── scripts/                         # Mode B: skrip runner GitHub Actions
+├── pterodactyl/                     # Egg Pterodactyl + panduan lengkap (EN / ID)
 ├── assets/                          # wallpaper + screenshot
 └── .github/workflows/
     ├── rdp.yml                      # workflow Mode B
