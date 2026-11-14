@@ -89,6 +89,7 @@ function Set-KzLocalUser {
         $flags = [int]$user.UserFlags.Value
         $user.Put('UserFlags', (($flags -bor 0x10000) -band (-bnot 0x2)))   # password never expires, account enabled
         $user.Put('Description', 'Kazama RDP')
+        $user.Put('PasswordExpired', 0)                                       # never force a change at first logon (NLA would reject it)
         $user.SetInfo()
         return $state
     } catch {
