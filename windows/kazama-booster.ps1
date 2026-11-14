@@ -6,8 +6,8 @@
 # Frees disk space on C: by deleting files Windows can rebuild or never needs.
 #
 #   -Mode safe   caches, temp files, update leftovers, crash dumps, browser caches
-#   -Mode deep   safe + component-store clean-up (DISM /StartComponentCleanup; add /ResetBase with
-#                KZ_DISM_RESETBASE=true), hibernation file,
+#   -Mode deep   safe + hibernation file (DISM component clean-up and event logs are slow: opt in with
+#                KZ_SLOW_CLEANUP=true; DISM /ResetBase additionally with KZ_DISM_RESETBASE=true),
 #                shadow copies, event logs, Windows.old, installer cache
 #   -Mode max    deep + REMOVES apps/SDKs listed in kazama-catalog.psd1 (Edge, Firefox,
 #                Unity, R, Haskell, Android, Julia, Miniconda, Visual Studio, databases ...).
@@ -94,18 +94,40 @@ function Invoke-WithTimeout([string]$File, [string[]]$Arguments, [int]$Seconds =
     return $proc.ExitCode
 }
 
+function Invoke-RdBatch([string[]]$Dirs, [int]$Parallelism = 16, [int]$TimeoutSeconds = 900) {
+    <# Deletes many folders at the same time (up to $Parallelism `rd /s /q` processes). Never runs past the deadline. #>
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $running = @()
+    foreach ($dir in $Dirs) {
+        while (@($running | Where-Object { -not $_.HasExited }).Count -ge $Parallelism -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
+        if ((Get-Date) -ge $deadline) { break }
+        $running += Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d', '/c', "rd /s /q `"\\?\$dir`"") -PassThru -WindowStyle Hidden
+    }
+    while (@($running | Where-Object { -not $_.HasExited }).Count -gt 0 -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 300 }
+    foreach ($proc in $running) { if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } }
+}
+
 function Remove-Tree([string]$Path, [int]$TimeoutSeconds = 900) {
-    <# Deletes folders/files matching $Path (wildcards allowed).
-       Folders are emptied by mirroring an EMPTY folder over them with robocopy: multi-threaded, long-path safe, and in
-       backup mode (/B) so ACLs / TrustedInstaller ownership do not matter. This replaces the old takeown /R + icacls /T
-       fallback, which could run for a very long time on huge trees such as Visual Studio. #>
+    <# Deletes folders/files matching $Path (wildcards allowed), fast:
+       the 2nd and 1st folder levels are removed concurrently with `rd /s /q` (native, long-path safe via the \\?\ prefix),
+       then the small remainder. Only if something stubborn is left (locked file / odd ACL) a bounded robocopy purge in
+       backup mode (/B) is tried. No recursive takeown/icacls: on huge trees (Visual Studio) that took very long. #>
     foreach ($item in @(Get-Item -Path $Path -Force -ErrorAction SilentlyContinue)) {
         $full = $item.FullName
         if (-not $item.PSIsContainer) { Remove-Item -LiteralPath $full -Force -ErrorAction SilentlyContinue; continue }
-        $empty = Join-Path $env:TEMP 'kazama-empty'
-        New-Item -ItemType Directory -Force -Path $empty | Out-Null
-        [void](Invoke-WithTimeout 'robocopy.exe' @("`"$empty`"", "`"$full`"", '/MIR', '/B', '/R:0', '/W:0', '/MT:64', '/NFL', '/NDL', '/NJH', '/NJS', '/NP') $TimeoutSeconds)
-        [void](Invoke-WithTimeout 'cmd.exe' @('/d', '/c', "rd /s /q `"\\?\$full`"") 120)
+
+        $level1 = @(Get-ChildItem -LiteralPath $full -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+        $level2 = @($level1 | ForEach-Object { Get-ChildItem -LiteralPath $_ -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName } })
+        if ($level2.Count -gt 0) { Invoke-RdBatch $level2 16 $TimeoutSeconds }
+        if ($level1.Count -gt 0) { Invoke-RdBatch $level1 16 $TimeoutSeconds }
+        [void](Invoke-WithTimeout 'cmd.exe' @('/d', '/c', "rd /s /q `"\\?\$full`"") 300)
+
+        if (Test-Path -LiteralPath $full) {
+            $empty = Join-Path $env:TEMP 'kazama-empty'
+            New-Item -ItemType Directory -Force -Path $empty | Out-Null
+            [void](Invoke-WithTimeout 'robocopy.exe' @("`"$empty`"", "`"$full`"", '/MIR', '/B', '/R:0', '/W:0', '/NFL', '/NDL', '/NJH', '/NJS', '/NP') 300)
+            [void](Invoke-WithTimeout 'cmd.exe' @('/d', '/c', "rd /s /q `"\\?\$full`"") 60)
+        }
     }
 }
 
@@ -174,7 +196,7 @@ function Invoke-UninstallEntry($Entry) {
         $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/d', '/s', '/c', "`"$cmd$silent`"" -PassThru -WindowStyle Hidden
     }
     # An uninstaller that waits for user input must never block the booster.
-    if (-not $proc.WaitForExit(300000)) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+    if (-not $proc.WaitForExit(120000)) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
 }
 
 function Test-ChromeInstalled {
@@ -206,7 +228,7 @@ function Remove-Edge {
     $setup = Get-ChildItem 'C:\Program Files (x86)\Microsoft\Edge\Application\*\Installer\setup.exe' -ErrorAction SilentlyContinue |
         Sort-Object FullName -Descending | Select-Object -First 1
     if ($setup) {
-        [void](Invoke-WithTimeout $setup.FullName @('--uninstall', '--system-level', '--verbose-logging', '--force-uninstall') 300)
+        [void](Invoke-WithTimeout $setup.FullName @('--uninstall', '--system-level', '--verbose-logging', '--force-uninstall') 120)
     }
     return $true
 }
@@ -308,20 +330,23 @@ Invoke-Step 'Recycle Bin' 'Recycle Bin' {
 
 # ---- deep steps -------------------------------------------------------------
 if ($Mode -in 'deep', 'max') {
-    Invoke-Step 'Windows component store cleanup (DISM)' 'Pembersihan component store Windows (DISM)' {
-        # /ResetBase frees more but can take 10-20 minutes: opt in with KZ_DISM_RESETBASE=true.
-        $dismArgs = @('/Online', '/Cleanup-Image', '/StartComponentCleanup')
-        if ($env:KZ_DISM_RESETBASE -eq 'true') { $dismArgs += '/ResetBase' }
-        [void](Invoke-WithTimeout 'dism.exe' $dismArgs 900)
+    # Slow and small-gain: DISM component cleanup and clearing event logs. Opt in with KZ_SLOW_CLEANUP=true.
+    if ($env:KZ_SLOW_CLEANUP -eq 'true') {
+        Invoke-Step 'Windows component store cleanup (DISM)' 'Pembersihan component store Windows (DISM)' {
+            # /ResetBase frees more but can take 10-20 minutes: also opt in with KZ_DISM_RESETBASE=true.
+            $dismArgs = @('/Online', '/Cleanup-Image', '/StartComponentCleanup')
+            if ($env:KZ_DISM_RESETBASE -eq 'true') { $dismArgs += '/ResetBase' }
+            [void](Invoke-WithTimeout 'dism.exe' $dismArgs 900)
+        }
+        Invoke-Step 'Event logs' 'Event log' {
+            foreach ($name in (& wevtutil.exe el)) { & wevtutil.exe cl $name 2>$null }
+        }
     }
     Invoke-Step 'Hibernation file' 'File hibernasi' {
         & powercfg.exe -h off
     }
     Invoke-Step 'Shadow copies / restore points' 'Shadow copy / restore point' {
         & vssadmin.exe delete shadows /all /quiet
-    }
-    Invoke-Step 'Event logs' 'Event log' {
-        foreach ($name in (& wevtutil.exe el)) { & wevtutil.exe cl $name 2>$null }
     }
     Invoke-Step 'Old Windows installs' 'Sisa instalasi Windows lama' {
         foreach ($d in 'C:\Windows.old', 'C:\$WINDOWS.~BT', 'C:\$WINDOWS.~WS') { Remove-Tree $d }
