@@ -124,7 +124,7 @@ Frees disk space on `C:` by deleting files Windows can rebuild or never needs, t
 | Mode | What it removes |
 |------|-----------------|
 | **safe** | Temp files, crash dumps, Windows Update download cache, Delivery Optimization cache, error reports, CBS logs, Edge/Chrome caches, npm/pip caches, Recycle Bin, + disk TRIM |
-| **deep** | everything in *safe* **plus** Windows component store clean-up (`DISM`; the slower `/ResetBase` is opt-in with `KZ_DISM_RESETBASE=true`), hibernation file, shadow copies, event logs, `Windows.old`, installer package cache |
+| **deep** | everything in *safe* **plus** hibernation file, shadow copies, `Windows.old`, installer package cache (slow, small-gain extras — DISM component clean-up and event logs — are opt-in with `KZ_SLOW_CLEANUP=true`) |
 | **max** | everything in *deep* **plus uninstalls/deletes the apps and SDKs in [`windows/kazama-catalog.psd1`](windows/kazama-catalog.psd1)**: Edge, Firefox, Unity, R (+ Rtools), Haskell (ghcup/cabal), Android SDK, Julia, Miniconda, Rust, MSYS2, MySQL, PostgreSQL, MongoDB, Cosmos DB Emulator and **Visual Studio** |
 
 **`safe` only frees caches, so expect a small gain (about 1 GB on a runner).** The big wins on GitHub runners come from `max`, which removes the pre-installed apps and SDKs.
@@ -212,6 +212,7 @@ Set `KAZAMA_TUNE=light` (default) or `max` — it disables background work that 
 | Windows reinstalls every deploy | No Volume at `/storage`. |
 | Tailscale does not connect (Railway) | See the deploy logs; check the auth key. Tailscale must run on your device too. |
 | Wallpaper not shown | Applied on each user's first logon; the Windows App client must have *Desktop background* enabled. |
+| Windows App cannot connect / rejects the credentials (Actions) | Open the job summary → **RDP self-test** (it shows which check failed). Make sure Tailscale runs on your device. If the credentials are rejected, sign in as `COMPUTERNAME\user` (computer name is in the summary). As a last resort run the workflow with `nla` turned off (only safe over Tailscale). |
 | `RDP_PASSWORD is missing` (Actions) | Add it under **Secrets and variables → Actions**. |
 
 ## 🛠️ Run locally
