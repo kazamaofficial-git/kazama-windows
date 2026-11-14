@@ -18,6 +18,14 @@ on:
         type: choice
         default: max
         options: ["off", "safe", "deep", "max"]
+      nla:
+        description: "Network Level Authentication. Turn OFF only to troubleshoot 'credentials rejected' errors (safe only over Tailscale)"
+        type: boolean
+        default: true
+      slow_cleanup:
+        description: "Booster deep/max: also run DISM component cleanup and clear event logs (slow, small gain)"
+        type: boolean
+        default: false
       keep:
         description: "Apps to KEEP in max mode (comma separated ids, see windows/kazama-catalog.psd1). Chrome is always kept."
         type: string
@@ -76,6 +84,8 @@ jobs:
       KZ_TS_HOSTNAME: ${{ inputs.tailscale_hostname }}
       KZ_PACKAGES: ${{ inputs.packages }}
       KZ_KEEP: ${{ inputs.keep }}
+      KZ_RDP_NLA: ${{ inputs.nla }}
+      KZ_SLOW_CLEANUP: ${{ inputs.slow_cleanup }}
       KZ_SAVE_FILES: ${{ inputs.save_files }}
     steps:
       - name: Checkout
@@ -110,6 +120,11 @@ jobs:
           KZ_HOST: ${{ steps.tailscale.outputs.host }}
           KZ_NAME: ${{ steps.tailscale.outputs.name }}
         run: ./scripts/show-connection.ps1
+
+      - name: Connection self-test
+        env:
+          KZ_HOST: ${{ steps.tailscale.outputs.host }}
+        run: ./scripts/diagnose-rdp.ps1
 
       - name: Keep session alive
         run: ./scripts/keepalive.ps1
