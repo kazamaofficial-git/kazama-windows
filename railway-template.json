@@ -89,7 +89,7 @@
           "required": false,
           "secret": false,
           "defaultValue": "safe",
-          "description": "Storage Booster inside Windows: off, safe (caches/temp), deep (+ DISM component cleanup, hibernation, shadow copies, event logs) or max (+ removes Edge, Firefox, Unity, R, Haskell, Android, Julia, Miniconda, Visual Studio, databases; Chrome is installed/kept). Applied at first install; edit C:\\Kazama\\kazama.conf later."
+          "description": "Storage Booster inside Windows: off, safe (caches/temp), deep (+ hibernation, shadow copies, Windows.old, installer cache) or max (+ removes Edge, Firefox, Unity, R, Haskell, Android, Julia, Miniconda, Visual Studio, databases; Chrome is installed/kept). Applied at first install; edit C:\\Kazama\\kazama.conf later."
         },
         "BOOSTER_SCHEDULE": {
           "required": false,
