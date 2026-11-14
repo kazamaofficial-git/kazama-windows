@@ -120,7 +120,7 @@
         },
         {
             "name": "Storage Booster mode",
-            "description": "Inside Windows: off, safe (caches), deep (+ DISM component cleanup, hibernation, shadow copies, event logs) or max (+ removes Edge, Firefox, Unity, R, Haskell, Android, Visual Studio... Chrome is kept). Applied at the first install.",
+            "description": "Inside Windows: off, safe (caches), deep (+ hibernation, shadow copies, Windows.old, installer cache) or max (+ removes Edge, Firefox, Unity, R, Haskell, Android, Visual Studio... Chrome is kept). Applied at the first install.",
             "env_variable": "BOOSTER_MODE",
             "default_value": "safe",
             "user_viewable": true,
