@@ -15,11 +15,13 @@ $steps = T @"
 1. Make sure **Tailscale** is running on your device and signed in to the same tailnet.
 2. Open **Windows App** > **+ > PC** and set **PC name** to:  ``$addr``  (or ``$($env:KZ_NAME)``)
 3. **User account** > *Add user account*:  username ``$user``  ·  password = your ``RDP_PASSWORD``.
+   If it says the credentials are wrong, use ``$($env:COMPUTERNAME)\$user`` as the username.
 4. Save, connect, and accept the certificate prompt.
 "@ @"
 1. Pastikan **Tailscale** aktif di perangkat Anda dan masuk ke tailnet yang sama.
 2. Buka **Windows App** > **+ > PC**, isi **PC name** dengan:  ``$addr``  (atau ``$($env:KZ_NAME)``)
 3. **User account** > *Add user account*:  username ``$user``  ·  password = ``RDP_PASSWORD`` Anda.
+   Jika dibilang kredensial salah, pakai ``$($env:COMPUTERNAME)\$user`` sebagai username.
 4. Simpan, hubungkan, dan setujui peringatan sertifikat.
 "@
 $ending = T "This session lasts at most **$($env:KZ_DURATION) minutes**. Cancel the workflow run to stop it earlier. Everything on this machine is erased when it ends." `
