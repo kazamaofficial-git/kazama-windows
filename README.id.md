@@ -124,7 +124,7 @@ Membebaskan ruang disk `C:` dengan menghapus file yang bisa dibuat ulang Windows
 | Mode | Yang dihapus |
 |------|--------------|
 | **safe** | File sementara, crash dump, cache unduhan Windows Update, cache Delivery Optimization, laporan error, log CBS, cache Edge/Chrome, cache npm/pip, Recycle Bin, + TRIM disk |
-| **deep** | semua di *safe* **ditambah** pembersihan component store Windows (`DISM`; `/ResetBase` yang lebih lambat opsional dengan `KZ_DISM_RESETBASE=true`), file hibernasi, shadow copy, event log, `Windows.old`, cache paket installer |
+| **deep** | semua di *safe* **ditambah** file hibernasi, shadow copy, `Windows.old`, cache paket installer (tambahan yang lambat dan hasilnya kecil — pembersihan DISM dan event log — opsional dengan `KZ_SLOW_CLEANUP=true`) |
 | **max** | semua di *deep* **ditambah menghapus aplikasi dan SDK di [`windows/kazama-catalog.psd1`](windows/kazama-catalog.psd1)**: Edge, Firefox, Unity, R (+ Rtools), Haskell (ghcup/cabal), Android SDK, Julia, Miniconda, Rust, MSYS2, MySQL, PostgreSQL, MongoDB, Cosmos DB Emulator, dan **Visual Studio** |
 
 **`safe` hanya membersihkan cache, jadi hasilnya kecil (sekitar 1 GB di runner).** Hasil besar di runner GitHub datang dari `max`, yang menghapus aplikasi dan SDK bawaan.
@@ -212,6 +212,7 @@ Isi `KAZAMA_TUNE=light` (default) atau `max` — mematikan pekerjaan latar belak
 | Windows diinstal ulang tiap deploy | Belum ada Volume di `/storage`. |
 | Tailscale tidak terhubung (Railway) | Lihat deploy logs; periksa auth key. Tailscale juga harus aktif di perangkat Anda. |
 | Wallpaper tidak tampil | Diterapkan saat logon pertama tiap user; klien Windows App harus mengaktifkan *Desktop background*. |
+| Windows App tidak bisa terhubung / menolak kredensial (Actions) | Buka job summary → **RDP self-test** (menunjukkan pemeriksaan mana yang gagal). Pastikan Tailscale aktif di perangkat Anda. Jika kredensial ditolak, masuk sebagai `COMPUTERNAME\user` (nama komputer ada di summary). Pilihan terakhir: jalankan workflow dengan `nla` dimatikan (aman hanya lewat Tailscale). |
 | `RDP_PASSWORD is missing` (Actions) | Tambahkan di **Secrets and variables → Actions**. |
 
 ## 🛠️ Jalankan lokal
