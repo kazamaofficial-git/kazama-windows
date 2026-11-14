@@ -37,6 +37,11 @@ foreach ($i in 1..15) {
 }
 if (-not $ip) { Stop-Kz "Could not get a Tailscale IP." "Gagal mendapatkan IP Tailscale." }
 
+# Windows firewall treats unknown networks as Public: mark the Tailscale network Private (best effort).
+[void](Invoke-KzOptional 'Tailscale network category' {
+    Get-NetConnectionProfile | Where-Object { $_.InterfaceAlias -like '*Tailscale*' } | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction Stop
+})
+
 Set-KzOutput -Name 'host' -Value $ip
 Set-KzOutput -Name 'name' -Value $name
 Write-KzInfo "Tailscale ready: $ip ($name)" "Tailscale siap: $ip ($name)"
