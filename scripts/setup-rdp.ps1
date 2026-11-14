@@ -2,7 +2,7 @@
 # Kazama Windows - enable RDP + create the login user (GitHub Actions / native mode)
 # Developer  : @kazamaofficial-git
 # ============================================================
-# Reads : RDP_PASSWORD (secret) / RDP_PASSWORD_VAR (variable), KZ_USERNAME
+# Reads : RDP_PASSWORD (secret) / RDP_PASSWORD_VAR (variable), KZ_USERNAME, KZ_RDP_NLA ('false' disables NLA - troubleshooting only)
 #
 # Critical steps (user, RDP on, service) stop the job with a clear ::error::.
 # Optional steps (firewall rule, power settings) only produce a yellow ::warning::
@@ -53,13 +53,18 @@ Start-KzGroup 'Enable Remote Desktop' 'Aktifkan Remote Desktop'
 try {
     $ts = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server'
     Set-ItemProperty -Path $ts -Name 'fDenyTSConnections' -Value 0
-    Set-ItemProperty -Path "$ts\WinStations\RDP-Tcp" -Name 'UserAuthentication' -Value 1   # keep NLA enabled
+    $nla = if ($env:KZ_RDP_NLA -eq 'false') { 0 } else { 1 }                                  # NLA stays enabled unless explicitly turned off
+    Set-ItemProperty -Path "$ts\WinStations\RDP-Tcp" -Name 'UserAuthentication' -Value $nla
+    if ($nla -eq 0) { Write-KzWarn 'Network Level Authentication is OFF (nla=false). Only use this over Tailscale.' 'Network Level Authentication MATI (nla=false). Pakai hanya lewat Tailscale.' }
     Set-Service -Name TermService -StartupType Automatic
     Restart-Service -Name TermService -Force -WarningAction SilentlyContinue
 } catch {
     Stop-Kz "Could not enable Remote Desktop: $($_.Exception.Message)" "Gagal mengaktifkan Remote Desktop: $($_.Exception.Message)"
 }
 
+[void](Invoke-KzOptional 'Built-in Remote Desktop firewall rules' {
+    Enable-NetFirewallRule -DisplayGroup 'Remote Desktop' -ErrorAction Stop
+})
 [void](Invoke-KzOptional 'Firewall rule for port 3389' {
     if (-not (Get-NetFirewallRule -DisplayName 'Kazama RDP' -ErrorAction SilentlyContinue)) {
         New-NetFirewallRule -DisplayName 'Kazama RDP' -Direction Inbound -Protocol TCP -LocalPort 3389 -Action Allow -ErrorAction Stop | Out-Null
@@ -85,4 +90,5 @@ if (-not $ok) { Stop-Kz "RDP service is not listening on port 3389." "Layanan RD
 Stop-KzGroup
 
 $warnings = Get-KzWarnCount
-Write-KzInfo "RDP is ready on port 3389 (NLA enabled), $warnings warning(s)" "RDP siap di port 3389 (NLA aktif), $warnings peringatan"
+$nlaText = if ($nla -eq 1) { "NLA enabled" } else { "NLA disabled" }
+Write-KzInfo "RDP is ready on port 3389 ($nlaText), $warnings warning(s)" "RDP siap di port 3389 ($nlaText), $warnings peringatan"
